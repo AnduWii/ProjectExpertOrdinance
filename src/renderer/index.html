@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: http: https: chrome-extension:; style-src 'self'; script-src 'self'"
+    />
+    <title>Ordinance Browser</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header id="chrome">
+      <div id="tabstrip">
+        <div id="tabs" role="tablist" aria-label="Tabs"></div>
+        <button id="new-tab" class="icon-btn" title="New tab (Ctrl+T)" aria-label="New tab">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
+
+      <div id="navbar">
+        <button id="back" class="icon-btn" title="Back" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
+        </button>
+        <button id="forward" class="icon-btn" title="Forward" aria-label="Forward">
+          <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
+        </button>
+        <button id="reload" class="icon-btn" title="Reload (Ctrl+R)" aria-label="Reload">
+          <svg class="when-idle" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66" /><path d="M20 4v5h-5" /></svg>
+          <svg class="when-loading" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
+        </button>
+        <button id="home" class="icon-btn" title="Home" aria-label="Home">
+          <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8" /><path d="M5 10v10h5v-6h4v6h5V10" /></svg>
+        </button>
+
+        <form id="address-form" autocomplete="off">
+          <input
+            id="address"
+            type="text"
+            spellcheck="false"
+            placeholder="Search DuckDuckGo or type a URL"
+            aria-label="Address and search bar"
+          />
+          <button id="bookmark-star" type="button" class="icon-btn small" title="Bookmark this page (Ctrl+D)" aria-label="Bookmark this page" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" /></svg>
+          </button>
+        </form>
+
+        <div id="extension-actions" aria-label="Extensions"></div>
+
+        <button id="toggle-bookmarks" class="icon-btn" title="Bookmarks (Ctrl+Shift+O)" aria-label="Bookmarks">
+          <svg viewBox="0 0 24 24"><path d="M6 3.5h12v17l-6-4-6 4z" /></svg>
+        </button>
+        <button id="toggle-history" class="icon-btn" title="History (Ctrl+H)" aria-label="History">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>
+        </button>
+        <button id="toggle-extensions" class="icon-btn" title="Extensions" aria-label="Extensions">
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
+        </button>
+      </div>
+
+      <div id="debug-banner" role="status" hidden>
+        <span id="debug-text"></span>
+        <button id="debug-cancel" type="button">Cancel</button>
+      </div>
+    </header>
+
+    <aside id="panel" hidden>
+      <nav class="panel-tabs">
+        <button type="button" data-view="bookmarks">Bookmarks</button>
+        <button type="button" data-view="history">History</button>
+        <button type="button" data-view="extensions">Extensions</button>
+        <button type="button" id="panel-close" class="icon-btn small" aria-label="Close panel">
+          <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
+        </button>
+      </nav>
+
+      <section data-view="bookmarks">
+        <ul id="bookmark-list" class="item-list"></ul>
+        <p class="empty" id="bookmark-empty">No bookmarks yet. Press the star in the address bar to add one.</p>
+      </section>
+
+      <section data-view="history">
+        <div class="row">
+          <input id="history-search" type="search" placeholder="Search history" aria-label="Search history" />
+          <button type="button" id="history-clear" class="text-btn">Clear all</button>
+        </div>
+        <ul id="history-list" class="item-list"></ul>
+        <p class="empty" id="history-empty">No history.</p>
+      </section>
+
+      <section data-view="extensions">
+        <div class="row">
+          <button type="button" id="extension-load" class="primary-btn">Load unpacked…</button>
+        </div>
+        <p class="hint">Pick a folder that contains a <code>manifest.json</code>. Loaded extensions are reloaded on every start.</p>
+        <ul id="extension-list" class="item-list"></ul>
+        <p class="empty" id="extension-empty">No extensions loaded.</p>
+      </section>
+    </aside>
+
+    <div id="sidepanel-header" hidden>
+      <span id="sidepanel-title"></span>
+      <button type="button" id="sidepanel-close" class="icon-btn small" aria-label="Close side panel">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
