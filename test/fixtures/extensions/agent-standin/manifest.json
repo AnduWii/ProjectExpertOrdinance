@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Agent Stand-in",
+  "version": "1.0.0",
+  "description": "Test fixture that exercises the APIs agent extensions like Claude in Chrome depend on: side panel, debugger (CDP), tab groups, scripting, screenshots and web auth.",
+  "permissions": ["sidePanel", "debugger", "tabs", "tabGroups", "scripting", "storage", "identity", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Agent Stand-in", "default_icon": { "32": "icon32.png" } },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "icons": { "32": "icon32.png" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_start" }]
+}

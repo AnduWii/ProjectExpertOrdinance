@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "API Probe",
+  "version": "1.0.0",
+  "description": "Test fixture: reports which chrome.* APIs exist in this browser.",
+  "permissions": [
+    "accessibilityFeatures.read", "activeTab", "alarms", "bookmarks", "browsingData", "contentSettings",
+    "contextMenus", "cookies", "debugger", "declarativeContent", "declarativeNetRequest", "desktopCapture",
+    "dns", "downloads", "favicon", "fontSettings", "gcm", "history", "identity", "idle", "management",
+    "nativeMessaging", "notifications", "offscreen", "pageCapture", "power", "printerProvider", "privacy",
+    "processes", "proxy", "readingList", "scripting", "search", "sessions", "sidePanel", "storage",
+    "system.cpu", "system.display", "system.memory", "system.storage", "tabCapture", "tabGroups", "tabs",
+    "topSites", "tts", "ttsEngine", "unlimitedStorage", "userScripts", "webAuthenticationProxy",
+    "webNavigation", "webRequest"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "sw.js" },
+  "action": { "default_title": "API Probe" }
+}

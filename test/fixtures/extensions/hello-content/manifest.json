@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Hello Content",
+  "version": "1.0.0",
+  "description": "Test fixture: content script plus a toolbar popup.",
+  "permissions": ["storage", "bookmarks"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_title": "Hello Content", "default_popup": "popup.html", "default_icon": { "32": "icon32.png" } },
+  "icons": { "32": "icon32.png" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_end" }]
+}
