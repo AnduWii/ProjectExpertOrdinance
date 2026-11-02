@@ -33,6 +33,8 @@ jobs:
           name: e2e-artifacts
           path: test/.tmp/
           if-no-files-found: ignore
+          # test/.tmp is a dot-directory; upload-artifact skips those by default.
+          include-hidden-files: true
 
   build:
     name: Build (${{ matrix.name }})
