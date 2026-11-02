@@ -1,9 +1,11 @@
 'use strict';
 
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, session, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, dialog } = require('electron');
+const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { BrowserWindowController } = require('./window');
 const { Bookmarks, History, Settings } = require('./store');
+const { ExtensionManager } = require('./extensions');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) app.setPath('userData', path.resolve(process.env.ORDINANCE_USER_DATA));
@@ -15,7 +17,8 @@ const ctx = {
   settings: null,
   bookmarks: null,
   history: null,
-  crx: null,
+  crx: null, // electron-chrome-extensions instance (chrome.tabs, action, ...)
+  extensions: null, // ExtensionManager (load/remove unpacked extensions)
   getHomePage: () => process.env.ORDINANCE_HOME || ctx.settings.get('homePage'),
 };
 
@@ -44,6 +47,8 @@ const focusedController = () => {
 };
 
 const controllerForUi = (wc) => [...controllers].find((c) => c.ui === wc) || null;
+const controllerForWindow = (win) => [...controllers].find((c) => c.win === win) || null;
+const controllerForTab = (tabId) => [...controllers].find((c) => c.tabs.has(tabId)) || null;
 
 function broadcast(channel, payload) {
   for (const c of controllers) c.send(channel, payload);
@@ -68,6 +73,7 @@ function registerIpc() {
   uiHandle('ui:ready', (c) => {
     c.emitState();
     c.emitLayout();
+    c.send('extensions:state', ctx.extensions.list());
     return true;
   });
   uiHandle('ui:layout', (c, insets) => c.setInsets(insets || {}));
@@ -112,6 +118,74 @@ function registerIpc() {
   uiHandle('history:list', (_c, query) => ctx.history.list({ query: String(query || '') }));
   uiHandle('history:remove', (_c, id) => ctx.history.remove(String(id)));
   uiHandle('history:clear', () => ctx.history.clear());
+
+  uiHandle('extensions:list', () => ctx.extensions.list());
+  uiHandle('extensions:load', async (c) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(c.win, {
+      title: 'Load unpacked extension',
+      buttonLabel: 'Load extension',
+      properties: ['openDirectory'],
+    });
+    if (canceled || !filePaths.length) return null;
+    try {
+      return await ctx.extensions.load(filePaths[0]);
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  uiHandle('extensions:remove', (_c, id) => ctx.extensions.remove(String(id)));
+  uiHandle('extensions:activate', (c, id, anchorRect) => activateExtensionAction(c, String(id), anchorRect));
+  uiHandle('sidepanel:close', (c) => c.closeSidePanel());
+}
+
+/** Toolbar click on an extension: open its popup or fire chrome.action.onClicked. */
+function activateExtensionAction(c, extensionId, anchorRect) {
+  const tab = c.activeTab;
+  if (!tab || !ctx.extensions.get(extensionId)) return false;
+  const rect = anchorRect && Number.isFinite(anchorRect.x) ? anchorRect : { x: 0, y: 0, width: 32, height: 32 };
+  ctx.crx.api.browserAction.activateClick({
+    eventType: 'click',
+    extensionId,
+    tabId: tab.id,
+    anchorRect: rect,
+    alignment: 'bottom left',
+  });
+  return true;
+}
+
+function createExtensionSupport() {
+  ctx.crx = new ElectronChromeExtensions({
+    session: ctx.session,
+    async createTab(details) {
+      let c = controllerForWindow(BrowserWindow.fromId(details.windowId ?? -1)) || focusedController();
+      if (!c) {
+        c = createWindow([details.url || ctx.getHomePage()]);
+        return [c.activeTab.wc, c.win];
+      }
+      const tab = c.createTab({ url: details.url || ctx.getHomePage(), active: details.active !== false, index: details.index });
+      return [tab.wc, c.win];
+    },
+    selectTab(wc, win) {
+      const c = controllerForWindow(win) || controllerForTab(wc.id);
+      if (c) {
+        c.activateTab(wc.id);
+        if (!c.win.isFocused()) c.win.focus();
+      }
+    },
+    removeTab(wc, win) {
+      (controllerForWindow(win) || controllerForTab(wc.id))?.closeTab(wc.id);
+    },
+    async createWindow(details) {
+      const urls = [].concat(details.url || []);
+      return createWindow(urls).win;
+    },
+    removeWindow(win) {
+      if (!win.isDestroyed()) win.close();
+    },
+  });
+
+  ctx.extensions = new ExtensionManager({ session: ctx.session, settings: ctx.settings, userDataDir: app.getPath('userData') });
+  ctx.extensions.on('changed', () => broadcast('extensions:state', ctx.extensions.list()));
 }
 
 // ------------------------------------------------------------------ menu
@@ -224,8 +298,11 @@ if (!app.requestSingleInstanceLock()) {
     ctx.session = session.fromPartition(PARTITION);
     ctx.session.setUserAgent(chromeLikeUserAgent(ctx.session.getUserAgent()));
 
+    createExtensionSupport();
     registerIpc();
     buildMenu();
+    // Load extensions before the first tab so content scripts see it.
+    await ctx.extensions.loadSaved();
     createWindow(startupUrls(process.argv));
 
     app.on('activate', () => {
@@ -239,5 +316,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => ctx.history?.flush());
 }
+
+// End-to-end tests drive the app through this handle (never set in normal use).
+if (process.env.ORDINANCE_TEST === '1') globalThis.__ordinance = { ctx, controllers, createWindow };
 
 module.exports = { ctx, controllers, createWindow };
