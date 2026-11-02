@@ -7,7 +7,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const EventEmitter = require('node:events');
 const { unsupportedPermissions } = require('./extension-support');
 
@@ -92,31 +91,12 @@ class ExtensionManager extends EventEmitter {
     return { source, manifest };
   }
 
-  /**
-   * Extensions copied out of a Chrome profile (or unzipped from a .crx) carry
-   * a `_metadata` folder. Chromium refuses to load unpacked extensions with
-   * reserved "_"-prefixed entries, so load a cached copy without it. The
-   * manifest (and its "key", which fixes the extension ID) is kept intact.
-   */
-  prepare(source) {
-    if (!fs.existsSync(path.join(source, '_metadata'))) return source;
-    const hash = crypto.createHash('sha1').update(source).digest('hex').slice(0, 12);
-    const target = path.join(this.userDataDir, 'extension-cache', `${path.basename(source)}-${hash}`);
-    fs.rmSync(target, { recursive: true, force: true });
-    fs.cpSync(source, target, {
-      recursive: true,
-      filter: (src) => path.relative(source, src).split(path.sep)[0] !== '_metadata',
-    });
-    return target;
-  }
-
   async load(dir, { persist = true } = {}) {
     const { source, manifest } = this.validate(dir);
-    const loadPath = this.prepare(source);
-    const existing = this.api.getAllExtensions().find((e) => e.path === loadPath);
+    const existing = this.api.getAllExtensions().find((e) => e.path === source);
     if (existing) this.api.removeExtension(existing.id);
 
-    const ext = await this.api.loadExtension(loadPath, { allowFileAccess: true });
+    const ext = await this.api.loadExtension(source, { allowFileAccess: true });
     this.sources.set(ext.id, source);
     this.iconCache.delete(ext.id);
     if (persist) {
