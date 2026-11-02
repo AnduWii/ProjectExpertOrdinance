@@ -7,6 +7,7 @@ const { BrowserWindowController } = require('./window');
 const { Bookmarks, History, Settings } = require('./store');
 const { ExtensionManager } = require('./extensions');
 const { ExtensionCompat } = require('./compat');
+const { PermissionManager } = require('./permissions');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) app.setPath('userData', path.resolve(process.env.ORDINANCE_USER_DATA));
@@ -320,6 +321,7 @@ if (!app.requestSingleInstanceLock()) {
     ctx.history = new History(dir);
     ctx.session = session.fromPartition(PARTITION);
     ctx.session.setUserAgent(chromeLikeUserAgent(ctx.session.getUserAgent()));
+    new PermissionManager({ session: ctx.session, isInstalledExtension: (id) => !!ctx.extensions?.get(id) }).install();
 
     createExtensionSupport();
     registerIpc();
