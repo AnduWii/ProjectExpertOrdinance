@@ -2,92 +2,81 @@
 
 /**
  * Which Chrome extension APIs work in this browser, and who provides them.
- *
- * Sources:
- *  - "electron": Electron 45.2.1 built-in support
- *    (https://github.com/electron/electron/blob/v45.2.1/docs/api/extensions.md)
- *  - "library":  electron-chrome-extensions 4.10.0 polyfills
- *  - "shim":     this repo's compatibility layer (src/main/compat)
- *
- * The "unsupported" list was verified empirically by test/e2e (api-probe),
- * which loads an extension requesting every permission below and checks
- * which `chrome.*` namespaces exist in its service worker and pages.
+ * Measured with test/fixtures/extensions/api-probe on Electron 45.2.1 +
+ * electron-chrome-extensions 4.10.0 (see docs/extension-api-support.md).
  */
 
-const SUPPORTED = {
-  'devtools.inspectedWindow': 'electron',
-  'devtools.network': 'electron',
-  'devtools.panels': 'electron',
-  extension: 'electron (partial)',
-  i18n: 'electron',
-  management: 'electron (partial)',
-  scripting: 'electron',
-  webRequest: 'electron',
-  runtime: 'electron + library',
-  storage: 'electron + library (local, sync on disk; session/managed limited)',
-  tabs: 'electron + library + shim (group/ungroup/captureVisibleTab)',
-  action: 'library',
-  browserAction: 'library',
-  contextMenus: 'library',
-  cookies: 'library',
-  notifications: 'library',
-  webNavigation: 'library',
-  windows: 'library',
-  nativeMessaging: 'library (reads Chrome native-messaging host manifests)',
-  debugger: 'shim (CDP via webContents.debugger)',
-  sidePanel: 'shim (docked side panel)',
-  tabGroups: 'shim (groups tracked in memory, colour shown on tab)',
-  identity: 'shim (launchWebAuthFlow, getRedirectURL only)',
+const PROVIDERS = {
+  electron: 'Electron 45 built-in',
+  library: 'electron-chrome-extensions 4.10.0',
+  shim: 'this browser (src/main/compat)',
 };
 
-/** Manifest permissions that grant nothing usable here. */
-const UNSUPPORTED = [
-  'alarms',
+/** API -> provider, for namespaces that were called successfully. */
+const SUPPORTED = {
+  runtime: 'electron',
+  storage: 'electron',
+  scripting: 'electron',
+  i18n: 'electron',
+  alarms: 'electron',
+  offscreen: 'electron',
+  declarativeNetRequest: 'electron',
+  idle: 'electron',
+  management: 'electron',
+  permissions: 'electron',
+  'system.cpu': 'electron',
+  'system.memory': 'electron',
+  webRequest: 'electron',
+  tabs: 'electron+library+shim',
+  action: 'electron+library',
+  windows: 'library',
+  cookies: 'library',
+  contextMenus: 'library',
+  notifications: 'library',
+  webNavigation: 'library',
+  nativeMessaging: 'library',
+  debugger: 'shim',
+  sidePanel: 'shim',
+  tabGroups: 'shim',
+  identity: 'shim',
+};
+
+/** Present as an object but calls do nothing useful. */
+const STUBS = ['downloads', 'privacy', 'topSites', 'system.display'];
+
+/** No chrome.* namespace at all. */
+const MISSING = [
+  'accessibilityFeatures',
   'bookmarks',
   'browsingData',
-  'commands',
   'contentSettings',
   'declarativeContent',
-  'declarativeNetRequest',
-  'declarativeNetRequestWithHostAccess',
-  'declarativeNetRequestFeedback',
   'desktopCapture',
-  'dns',
-  'downloads',
   'favicon',
   'fontSettings',
   'gcm',
   'history',
-  'idle',
-  'offscreen',
   'pageCapture',
-  'power',
-  'privacy',
   'processes',
-  'proxy',
   'readingList',
   'search',
   'sessions',
-  'system.cpu',
-  'system.display',
-  'system.memory',
-  'system.storage',
   'tabCapture',
-  'topSites',
   'tts',
   'ttsEngine',
   'userScripts',
   'webAuthenticationProxy',
 ];
 
-// Permissions that are not API namespaces (host access, flags) and are fine.
-const NEUTRAL = new Set(['activeTab', 'background', 'unlimitedStorage', 'clipboardRead', 'clipboardWrite', 'geolocation']);
+const UNSUPPORTED = [...MISSING, ...STUBS];
 
+/** Manifest permissions this browser cannot honour (shown as a warning in the UI). */
 function unsupportedPermissions(manifest) {
   const requested = [...(manifest.permissions || []), ...(manifest.optional_permissions || [])].filter(
-    (p) => typeof p === 'string' && !p.includes('://') && p !== '<all_urls>' && !NEUTRAL.has(p),
+    (p) => typeof p === 'string',
   );
-  return [...new Set(requested.filter((p) => UNSUPPORTED.includes(p)))];
+  const out = requested.filter((p) => UNSUPPORTED.includes(p) || UNSUPPORTED.includes(p.split('.')[0]));
+  return [...new Set(out)];
 }
 
-module.exports = { SUPPORTED, UNSUPPORTED, unsupportedPermissions };
+module.exports = { PROVIDERS, SUPPORTED, STUBS, MISSING, UNSUPPORTED, unsupportedPermissions };
