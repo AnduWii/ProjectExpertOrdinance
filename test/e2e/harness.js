@@ -88,9 +88,11 @@ function tempProfile(name) {
 async function launch({ userData, home, args = [] }) {
   const env = { ...process.env, ORDINANCE_TEST: '1', ORDINANCE_USER_DATA: userData, ORDINANCE_HOME: home };
   delete env.NODE_OPTIONS; // Electron rejects some Node flags (e.g. --use-openssl-ca)
+  // ORDINANCE_APP_PATH runs the suite against a packaged build instead of `electron .`
+  const packaged = process.env.ORDINANCE_APP_PATH;
   const app = await _electron.launch({
-    executablePath: electronPath,
-    args: [ROOT, ...args],
+    executablePath: packaged || electronPath,
+    args: packaged ? args : [ROOT, ...args],
     env,
     timeout: 45000,
     // Playwright adds --no-sandbox on Linux unless told otherwise, and Electron

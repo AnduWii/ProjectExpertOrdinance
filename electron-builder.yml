@@ -1,0 +1,56 @@
+# electron-builder 26 configuration. Run `npm run dist:win` / `npm run dist:mac`.
+appId: com.anduwii.ordinancebrowser
+productName: Ordinance Browser
+copyright: Copyright © 2026 AnduWii
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+
+asar: true
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  # `npm run dist:mac` ad-hoc signs (identity "-") so Apple-silicon Macs will
+  # launch the build; hardened runtime is only useful with a Developer ID
+  # certificate + notarisation, see `npm run dist:mac:signed`.
+  hardenedRuntime: false
+
+dmg:
+  writeUpdateInfo: false
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  differentialPackage: false
+
+linux:
+  icon: build/icon.png
+  category: Network
+  target:
+    - target: AppImage
+      arch: [x64]
+
+publish: null

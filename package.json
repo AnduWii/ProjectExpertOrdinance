@@ -11,7 +11,13 @@
     "start": "electron .",
     "test": "node --test \"test/unit/*.test.js\"",
     "test:e2e": "node --test --test-concurrency=1 --test-reporter=spec \"test/e2e/*.test.js\"",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e",
+    "pack": "electron-builder --dir",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never -c.mac.identity=-",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist": "npm run dist:win && npm run dist:mac",
+    "dist:mac:signed": "electron-builder --mac --publish never -c.mac.hardenedRuntime=true"
   },
   "devDependencies": {
     "electron": "45.2.1",
