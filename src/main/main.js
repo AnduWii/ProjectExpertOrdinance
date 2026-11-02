@@ -236,7 +236,8 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Open Location…', accelerator: 'CmdOrCtrl+L', click: uiCommand('focus-address') },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        // Cmd+W closes the tab (above), so the window gets Shift+Cmd+W like Chrome.
+        isMac ? { role: 'close', accelerator: 'Shift+Cmd+W' } : { role: 'quit' },
       ],
     },
     { role: 'editMenu' },

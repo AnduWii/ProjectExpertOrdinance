@@ -84,6 +84,29 @@ test('[Tabs] open, close, switch and drag to reorder', async (t) => {
     h.screenshot('tabs-reordered');
   });
 
+  await t.test('menu commands: New Tab and Close Tab (Ctrl/Cmd+T, Ctrl/Cmd+W)', async () => {
+    const clickMenu = (label) =>
+      app.evaluate(({ Menu }, name) => {
+        const find = (items) => {
+          for (const item of items) {
+            if (item.label === name) return item;
+            const sub = item.submenu && find(item.submenu.items);
+            if (sub) return sub;
+          }
+          return null;
+        };
+        const item = find(Menu.getApplicationMenu().items);
+        item.click();
+        return item.accelerator;
+      }, label);
+    const before = (await h.mainState(app)).tabs.length;
+    assert.equal(await clickMenu('New Tab'), 'CmdOrCtrl+T');
+    await h.waitUntil(async () => (await h.mainState(app)).tabs.length === before + 1, { message: 'menu new tab' });
+    await h.waitUntil(async () => ui.evaluate(() => document.activeElement?.id === 'address'), { message: 'address focused' });
+    assert.equal(await clickMenu('Close Tab'), 'CmdOrCtrl+W');
+    await h.waitUntil(async () => (await h.mainState(app)).tabs.length === before, { message: 'menu close tab' });
+  });
+
   await t.test('window.open from a page opens a new tab next to its opener', async () => {
     const s = await h.mainState(app);
     await ui.click('#tabs .tab >> nth=0');
