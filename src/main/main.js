@@ -6,6 +6,7 @@ const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { BrowserWindowController } = require('./window');
 const { Bookmarks, History, Settings } = require('./store');
 const { ExtensionManager } = require('./extensions');
+const { ExtensionCompat } = require('./compat');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) app.setPath('userData', path.resolve(process.env.ORDINANCE_USER_DATA));
@@ -19,6 +20,9 @@ const ctx = {
   history: null,
   crx: null, // electron-chrome-extensions instance (chrome.tabs, action, ...)
   extensions: null, // ExtensionManager (load/remove unpacked extensions)
+  compat: null, // ExtensionCompat (debugger, sidePanel, tabGroups, identity shims)
+  decorateTab: (tab) => ctx.compat?.decorateTab(tab) || {},
+  onTabClosed: (tab) => ctx.compat?.onTabClosed(tab),
   getHomePage: () => process.env.ORDINANCE_HOME || ctx.settings.get('homePage'),
 };
 
@@ -38,6 +42,8 @@ function createWindow(urls = []) {
   const c = new BrowserWindowController(ctx, { urls });
   controllers.add(c);
   c.on('closed', () => controllers.delete(c));
+  c.on('side-panel-opened', (id) => ctx.compat?.onSidePanelChange(c, id, true));
+  c.on('side-panel-closed', (id) => ctx.compat?.onSidePanelChange(c, id, false));
   return c;
 }
 
@@ -136,12 +142,14 @@ function registerIpc() {
   uiHandle('extensions:remove', (_c, id) => ctx.extensions.remove(String(id)));
   uiHandle('extensions:activate', (c, id, anchorRect) => activateExtensionAction(c, String(id), anchorRect));
   uiHandle('sidepanel:close', (c) => c.closeSidePanel());
+  uiHandle('debugger:cancel', (_c, tabId) => ctx.compat.cancelDebugging(Number(tabId)));
 }
 
 /** Toolbar click on an extension: open its popup or fire chrome.action.onClicked. */
 function activateExtensionAction(c, extensionId, anchorRect) {
   const tab = c.activeTab;
   if (!tab || !ctx.extensions.get(extensionId)) return false;
+  if (ctx.compat?.handleActionClick(c, extensionId)) return true;
   const rect = anchorRect && Number.isFinite(anchorRect.x) ? anchorRect : { x: 0, y: 0, width: 32, height: 32 };
   ctx.crx.api.browserAction.activateClick({
     eventType: 'click',
@@ -154,6 +162,16 @@ function activateExtensionAction(c, extensionId, anchorRect) {
 }
 
 function createExtensionSupport() {
+  ctx.compat = new ExtensionCompat({
+    session: ctx.session,
+    getControllers: () => controllers,
+    getFocusedController: focusedController,
+    getExtension: (id) => ctx.extensions?.get(id) || null,
+  });
+  // Must be registered before electron-chrome-extensions, whose preload
+  // freezes the chrome object (see src/preload/compat-preload.js).
+  ctx.compat.registerPreloads();
+
   ctx.crx = new ElectronChromeExtensions({
     session: ctx.session,
     async createTab(details) {
@@ -182,10 +200,14 @@ function createExtensionSupport() {
     removeWindow(win) {
       if (!win.isDestroyed()) win.close();
     },
+    assignTabDetails(details, wc) {
+      ctx.compat?.assignTabDetails(details, wc);
+    },
   });
 
   ctx.extensions = new ExtensionManager({ session: ctx.session, settings: ctx.settings, userDataDir: app.getPath('userData') });
   ctx.extensions.on('changed', () => broadcast('extensions:state', ctx.extensions.list()));
+  ctx.extensions.on('removed', (id) => ctx.compat.forgetExtension(id));
 }
 
 // ------------------------------------------------------------------ menu
