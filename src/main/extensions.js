@@ -72,6 +72,20 @@ class ExtensionManager extends EventEmitter {
     return this.session.extensions || this.session;
   }
 
+  get dropInDir() {
+    return path.join(this.userDataDir, 'extensions');
+  }
+
+  isDropIn(dir) {
+    const rel = path.relative(this.dropInDir, dir);
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+  }
+
+  /** Folders in the drop-in directory the user removed; skipped on start-up. */
+  ignored() {
+    return this.settings.get('ignoredExtensions') || [];
+  }
+
   validate(dir) {
     const source = path.resolve(dir);
     if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) {
@@ -103,7 +117,9 @@ class ExtensionManager extends EventEmitter {
       const saved = new Set(this.settings.get('extensions') || []);
       saved.add(source);
       this.settings.set('extensions', [...saved]);
+      if (this.ignored().includes(source)) this.settings.set('ignoredExtensions', this.ignored().filter((p) => p !== source));
     }
+    this.loadErrors = this.loadErrors.filter((e) => e.path !== source);
     this.emit('changed');
     return this.describe(ext, manifest);
   }
@@ -111,13 +127,14 @@ class ExtensionManager extends EventEmitter {
   /** Load every extension saved in settings plus folders in <userData>/extensions. */
   async loadSaved() {
     const saved = this.settings.get('extensions') || [];
-    const dropIn = path.join(this.userDataDir, 'extensions');
+    const dropIn = this.dropInDir;
+    const ignored = new Set(this.ignored());
     const auto = fs.existsSync(dropIn)
       ? fs
           .readdirSync(dropIn, { withFileTypes: true })
           .filter((d) => d.isDirectory())
           .map((d) => path.join(dropIn, d.name))
-          .filter((d) => fs.existsSync(path.join(d, 'manifest.json')))
+          .filter((d) => fs.existsSync(path.join(d, 'manifest.json')) && !ignored.has(d))
       : [];
     this.loadErrors = [];
     for (const dir of [...new Set([...saved, ...auto])]) {
@@ -140,7 +157,23 @@ class ExtensionManager extends EventEmitter {
     this.iconCache.delete(id);
     const saved = (this.settings.get('extensions') || []).filter((p) => p !== source && p !== ext.path);
     this.settings.set('extensions', saved);
+    // Drop-in folders are re-scanned on start-up, so remember the removal.
+    if (this.isDropIn(source)) this.settings.set('ignoredExtensions', [...new Set([...this.ignored(), source])]);
     this.emit('removed', id);
+    this.emit('changed');
+    return true;
+  }
+
+  /** Extensions that failed to load at start-up: [{path, error}]. */
+  errors() {
+    return this.loadErrors.slice();
+  }
+
+  /** Stop trying to load a folder that failed (e.g. it was moved or deleted). */
+  forget(dir) {
+    this.loadErrors = this.loadErrors.filter((e) => e.path !== dir);
+    this.settings.set('extensions', (this.settings.get('extensions') || []).filter((p) => p !== dir));
+    if (this.isDropIn(dir)) this.settings.set('ignoredExtensions', [...new Set([...this.ignored(), dir])]);
     this.emit('changed');
     return true;
   }

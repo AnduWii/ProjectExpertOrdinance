@@ -170,6 +170,8 @@ const DEFAULT_SETTINGS = {
   searchUrl: 'https://duckduckgo.com/?q=',
   // Absolute paths of unpacked extensions to load on every start.
   extensions: [],
+  // Folders in <userData>/extensions that the user removed.
+  ignoredExtensions: [],
 };
 
 class Settings {

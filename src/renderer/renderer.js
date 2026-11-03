@@ -344,8 +344,20 @@ $('#history-clear').addEventListener('click', async () => {
   renderHistory();
 });
 
-function renderExtensions() {
+async function renderExtensions() {
   const items = state.extensions;
+  const errors = await api.listExtensionErrors();
+  $('#extension-errors').replaceChildren(
+    ...errors.map((e) =>
+      listItem({
+        primary: 'Failed to load',
+        secondary: e.path,
+        extra: el('span', { class: 'warn' }, e.error),
+        onRemove: () => api.forgetExtension(e.path),
+        removeLabel: 'Forget this extension',
+      }),
+    ),
+  );
   $('#extension-list').replaceChildren(
     ...items.map((x) =>
       listItem({
@@ -360,7 +372,7 @@ function renderExtensions() {
       }),
     ),
   );
-  $('#extension-empty').hidden = items.length > 0;
+  $('#extension-empty').hidden = items.length + errors.length > 0;
 }
 
 $('#extension-load').addEventListener('click', async () => {

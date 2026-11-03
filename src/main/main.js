@@ -141,6 +141,8 @@ function registerIpc() {
     }
   });
   uiHandle('extensions:remove', (_c, id) => ctx.extensions.remove(String(id)));
+  uiHandle('extensions:errors', () => ctx.extensions.errors());
+  uiHandle('extensions:forget', (_c, dir) => ctx.extensions.forget(String(dir)));
   uiHandle('extensions:activate', (c, id, anchorRect) => activateExtensionAction(c, String(id), anchorRect));
   uiHandle('sidepanel:close', (c) => c.closeSidePanel());
   uiHandle('debugger:cancel', (_c, tabId) => ctx.compat.cancelDebugging(Number(tabId)));
@@ -231,7 +233,18 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: withController((c) => { c.createTab({ url: ctx.getHomePage() }); c.ui.focus(); c.send('ui:command', { command: 'focus-address' }); }) },
+        {
+          label: 'New Tab',
+          accelerator: 'CmdOrCtrl+T',
+          click: () => {
+            // On macOS the app can be running with no window; then open one.
+            const existing = focusedController();
+            const c = existing || createWindow();
+            if (existing) c.createTab({ url: ctx.getHomePage() });
+            c.ui.focus();
+            c.send('ui:command', { command: 'focus-address' });
+          },
+        },
         { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => createWindow() },
         { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: withController((c) => c.closeTab(c.activeId)) },
         { type: 'separator' },

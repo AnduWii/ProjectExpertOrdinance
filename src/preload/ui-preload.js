@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('browserAPI', {
   listExtensions: invoke('extensions:list'),
   loadExtension: invoke('extensions:load'),
   removeExtension: invoke('extensions:remove'),
+  listExtensionErrors: invoke('extensions:errors'),
+  forgetExtension: invoke('extensions:forget'),
   activateExtension: invoke('extensions:activate'),
   closeSidePanel: invoke('sidepanel:close'),
   stopDebugging: invoke('debugger:cancel'),
