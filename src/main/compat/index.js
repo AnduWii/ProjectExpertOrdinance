@@ -16,7 +16,8 @@
  */
 
 const path = require('node:path');
-const { ipcMain, webContents, BrowserWindow } = require('electron');
+const { ipcMain, BrowserWindow } = require('electron');
+const { localize } = require('../extensions');
 
 const PRELOAD = path.join(__dirname, '..', '..', 'preload', 'compat-preload.js');
 const GROUP_COLORS = {
@@ -183,7 +184,8 @@ class ExtensionCompat {
   }
 
   extensionName(extensionId) {
-    return this.getExtension(extensionId)?.name || extensionId;
+    const ext = this.getExtension(extensionId);
+    return ext ? localize(ext.path, ext.manifest || {}, ext.name) : extensionId;
   }
 
   refreshTab(tabId) {
@@ -214,6 +216,7 @@ class ExtensionCompat {
 
   onTabClosed(tab) {
     if (this.debuggees.has(tab.id)) this.debuggees.get(tab.id).cleanup('target_closed');
+    for (const s of this.sidePanelState.values()) s.tabs.delete(tab.id);
     const groupId = this.tabGroup.get(tab.id);
     if (groupId != null) {
       this.tabGroup.delete(tab.id);
