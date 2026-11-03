@@ -144,10 +144,19 @@ class BrowserWindowController extends EventEmitter {
       if (details.reason === 'clean-exit') return;
       if (this.fullscreenTabId === tab.id) this.setPageFullscreen(tab, false);
       const url = tab.errorFor || tab.url;
-      // A gone renderer is replaced on the next navigation, so the error page loads.
-      setImmediate(() => {
-        if (!wc.isDestroyed()) this.showErrorPage(tab, url, CRASHED, `Reason: ${details.reason}. Reload to try again.`);
-      });
+      const detail = `Reason: ${details.reason}. Reload to try again.`;
+      // The next navigation starts a fresh renderer. Chromium may still be
+      // tearing the dead one down, so retry while the tab reports crashed.
+      let attempts = 0;
+      const show = () => {
+        if (wc.isDestroyed()) return;
+        attempts += 1;
+        this.showErrorPage(tab, url, CRASHED, detail);
+        setTimeout(() => {
+          if (!wc.isDestroyed() && wc.isCrashed() && attempts < 5) show();
+        }, 1000);
+      };
+      setTimeout(show, 50);
     });
 
     // Video/HTML fullscreen: the page takes the whole window, toolbar hidden.

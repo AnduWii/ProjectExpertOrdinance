@@ -55,8 +55,23 @@ test('[Robustness] fullscreen video, crashed tabs, extension load errors', async
   });
 
   await t.test('a crashed tab shows an error page and Reload recovers it', async () => {
-    await app.evaluate(({ webContents }, id) => webContents.fromId(id).forcefullyCrashRenderer(), tabId);
-    await h.waitUntil(async () => (await active()).title === 'This page crashed', { message: 'crash page' });
+    // Record what Chromium reports so a failure explains itself.
+    await app.evaluate(({ webContents }, id) => {
+      const wc = webContents.fromId(id);
+      const t0 = Date.now();
+      globalThis.__crashLog = [];
+      for (const name of ['render-process-gone', 'did-start-loading', 'did-navigate', 'did-fail-load', 'did-finish-load', 'page-title-updated']) {
+        wc.on(name, (_e, ...args) => globalThis.__crashLog.push(`${Date.now() - t0}ms ${name} ${JSON.stringify(args).slice(0, 120)}`));
+      }
+      wc.forcefullyCrashRenderer();
+    }, tabId);
+    try {
+      await h.waitUntil(async () => (await active()).title === 'This page crashed', { message: 'crash page' });
+    } catch (err) {
+      const log = await app.evaluate(() => globalThis.__crashLog);
+      const state = await active();
+      throw new Error(`${err.message}\nstate: ${JSON.stringify(state)}\nevents:\n${log.join('\n')}`);
+    }
     assert.equal((await active()).displayUrl, `${server.origin}/page1`, 'address bar keeps the URL');
     await ui.click('#reload');
     await h.waitUntil(async () => (await active()).title === 'Page One', { message: 'reloaded after crash' });
