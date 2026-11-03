@@ -17,12 +17,15 @@ const SIDE_PANEL_HEADER = 34;
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-function errorPage(url, code, description) {
-  return `<!doctype html><meta charset="utf-8"><title>Can't reach this page</title>
+const CANT_REACH = "Can't reach this page";
+const CRASHED = 'This page crashed';
+
+function errorPage(heading, url, detail) {
+  return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(heading)}</title>
 <style>body{font:15px system-ui,sans-serif;margin:12vh auto;max-width:560px;padding:0 24px;color:#333}
 h1{font-size:22px}code{background:#f2f2f2;padding:2px 6px;border-radius:4px;word-break:break-all}</style>
-<h1>Can't reach this page</h1><p><code>${escapeHtml(url)}</code></p>
-<p>${escapeHtml(description)} (${code})</p>`;
+<h1>${escapeHtml(heading)}</h1><p><code>${escapeHtml(url)}</code></p>
+<p>${escapeHtml(detail)}</p>`;
 }
 
 const tabWebPreferences = (session) => ({
@@ -48,6 +51,8 @@ class BrowserWindowController extends EventEmitter {
     this.activeId = null;
     this.insets = { top: 84, right: 0 };
     this.sidePanel = null;
+    this.fullscreenTabId = null; // tab whose page is in HTML (video) fullscreen
+    this.exitWindowFullscreen = false;
     this.statePending = false;
     this.destroyed = false;
 
@@ -133,11 +138,25 @@ class BrowserWindowController extends EventEmitter {
     wc.on('did-fail-load', (_e, code, description, validatedURL, isMainFrame) => {
       // -3 is ERR_ABORTED: user stopped, or a download/redirect replaced it.
       if (!isMainFrame || code === -3) return;
-      tab.errorFor = validatedURL;
-      tab.url = validatedURL;
-      tab.title = "Can't reach this page";
-      wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorPage(validatedURL, code, description))).catch(() => {});
-      update();
+      this.showErrorPage(tab, validatedURL, CANT_REACH, `${description} (${code})`);
+    });
+    wc.on('render-process-gone', (_e, details) => {
+      if (details.reason === 'clean-exit') return;
+      if (this.fullscreenTabId === tab.id) this.setPageFullscreen(tab, false);
+      const url = tab.errorFor || tab.url;
+      // A gone renderer is replaced on the next navigation, so the error page loads.
+      setImmediate(() => {
+        if (!wc.isDestroyed()) this.showErrorPage(tab, url, CRASHED, `Reason: ${details.reason}. Reload to try again.`);
+      });
+    });
+
+    // Video/HTML fullscreen: the page takes the whole window, toolbar hidden.
+    wc.on('enter-html-full-screen', () => this.setPageFullscreen(tab, true));
+    wc.on('leave-html-full-screen', () => this.setPageFullscreen(tab, false));
+    wc.on('before-input-event', (_e, input) => {
+      if (input.type === 'keyDown' && input.key === 'Escape' && this.fullscreenTabId === tab.id) {
+        wc.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => {});
+      }
     });
 
     wc.setWindowOpenHandler(({ url, disposition }) => {
@@ -157,6 +176,29 @@ class BrowserWindowController extends EventEmitter {
     wc.on('destroyed', () => {
       if (this.tabs.has(tab.id)) this.closeTab(tab.id);
     });
+  }
+
+  showErrorPage(tab, url, heading, detail) {
+    tab.errorFor = url;
+    tab.url = url;
+    tab.title = heading;
+    tab.wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errorPage(heading, url, detail))).catch(() => {});
+    this.emitState();
+  }
+
+  setPageFullscreen(tab, on) {
+    if (on) {
+      this.fullscreenTabId = tab.id;
+      if (!this.win.isFullScreen()) {
+        this.exitWindowFullscreen = true;
+        this.win.setFullScreen(true);
+      }
+    } else if (this.fullscreenTabId === tab.id) {
+      this.fullscreenTabId = null;
+      if (this.exitWindowFullscreen && !this.win.isDestroyed()) this.win.setFullScreen(false);
+      this.exitWindowFullscreen = false;
+    }
+    this.layout();
   }
 
   onNavigated(tab, url, fullNavigation) {
@@ -189,7 +231,13 @@ class BrowserWindowController extends EventEmitter {
     const tab = this.tabs.get(id);
     if (!tab) return;
     const prev = this.activeTab;
-    if (prev && prev !== tab) this.win.contentView.removeChildView(prev.view);
+    if (prev && prev !== tab) {
+      if (this.fullscreenTabId === prev.id) {
+        prev.wc.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => {});
+        this.setPageFullscreen(prev, false);
+      }
+      this.win.contentView.removeChildView(prev.view);
+    }
     this.activeId = id;
     this.win.contentView.addChildView(tab.view);
     this.layout();
@@ -204,6 +252,7 @@ class BrowserWindowController extends EventEmitter {
     this.order.splice(idx, 1);
     this.tabs.delete(id);
     const wasActive = this.activeId === id;
+    if (this.fullscreenTabId === id) this.setPageFullscreen(tab, false);
     if (wasActive) {
       this.win.contentView.removeChildView(tab.view);
       this.activeId = null;
@@ -312,9 +361,15 @@ class BrowserWindowController extends EventEmitter {
   layout() {
     if (this.win.isDestroyed()) return;
     const [w, h] = this.win.getContentSize();
+    const tab = this.activeTab;
+    const fullscreen = !!tab && this.fullscreenTabId === tab.id;
+    if (this.sidePanel) this.sidePanel.view.setVisible(!fullscreen);
+    if (fullscreen) {
+      tab.view.setBounds({ x: 0, y: 0, width: w, height: h });
+      return;
+    }
     const { top, right } = this.insets;
     const side = this.sidePanel ? SIDE_PANEL_WIDTH : 0;
-    const tab = this.activeTab;
     if (tab) {
       tab.view.setBounds({ x: 0, y: top, width: Math.max(0, w - side - right), height: Math.max(0, h - top) });
     }
