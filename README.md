@@ -10,6 +10,7 @@ A minimal desktop web browser built on Electron 45.2.1 (Chromium 156 engine) wit
 |---|---|
 | Tabs | Open (`+`, Ctrl/Cmd+T), close (`×`, middle-click, Ctrl/Cmd+W), switch (click, Ctrl+Tab), drag to reorder. Links that open new windows become tabs next to their opener; real popups (e.g. OAuth) stay popups. |
 | Address bar | Accepts URLs (`example.com`, `localhost:3000`, `https://…`) or search terms, which go to **DuckDuckGo**. Back, forward, reload/stop and home buttons. Unreachable pages show an error page that keeps the URL. |
+| Robustness | Video/HTML fullscreen hides the toolbar and fills the window (Esc exits). A crashed tab shows a "This page crashed" page and Reload brings it back. |
 | Bookmarks | Star button (Ctrl/Cmd+D) and a Bookmarks panel. Stored in `bookmarks.json`. |
 | History | Every page visit, newest first, searchable, single delete or clear all. Stored in `history.json`. |
 | Extensions | **Load unpacked…** from a folder with `session.extensions.loadExtension`. Extensions are re-loaded on every start, with toolbar buttons, popups, side panels and content scripts. Permissions this browser can't honour are flagged in the Extensions panel. |
@@ -62,8 +63,10 @@ Everything is plain JSON in the app's user-data folder:
 
 * `bookmarks.json`: `{ "version": 1, "bookmarks": [{ "id", "url", "title", "createdAt" }] }`
 * `history.json`: `{ "version": 1, "entries": [{ "id", "url", "title", "visitedAt" }] }`. Capped at 5,000 entries; repeat visits to the same URL are collapsed.
-* `settings.json`: `homePage`, `searchUrl` (default `https://duckduckgo.com/?q=`) and `extensions` (folders to load at start-up)
-* `extensions/`: any unpacked extension folder dropped here is loaded automatically
+* `settings.json`: `homePage`, `searchUrl` (default `https://duckduckgo.com/?q=`), `extensions` (folders to load at start-up) and `ignoredExtensions` (drop-in folders you removed)
+* `extensions/`: any unpacked extension folder dropped here is loaded automatically. Removing one in the Extensions panel keeps it removed after a restart.
+
+If a saved extension can't be loaded at start-up (for example, its folder was moved), the Extensions panel lists it with the error and a button to forget it.
 
 Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-<timestamp>`, not overwritten.
 
@@ -173,7 +176,7 @@ npm run test:e2e
 ```
 
 * `npm test`: unit tests for URL/search parsing, the JSON stores and the extension support table (Node's built-in test runner)
-* `npm run test:e2e`: launches the real app with Playwright's Electron driver and exercises tabs, navigation, extensions, bookmarks/history, the agent stand-in, and site permissions. Set `ORDINANCE_APP_PATH=/path/to/packaged/binary` to test a packaged build instead of `electron .`.
+* `npm run test:e2e`: launches the real app with Playwright's Electron driver and exercises tabs, navigation, extensions, bookmarks/history, the agent stand-in, site permissions, fullscreen, crash recovery and extension load errors. Set `ORDINANCE_APP_PATH=/path/to/packaged/binary` to test a packaged build instead of `electron .`.
 
 On Linux the e2e suite needs a display (`xvfb-run -a npm run test:e2e` on a headless box) and **must not run as root**. Chromium refuses to run as root unless given `--no-sandbox`, and Electron skips service-worker preloads without the sandbox, which breaks every MV3 extension API this browser adds. On Ubuntu 24.04 you may also need `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`. The harness launches with `chromiumSandbox: true` for the same reason; Playwright otherwise adds `--no-sandbox` on Linux.
 
