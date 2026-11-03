@@ -162,7 +162,7 @@ Outputs land in `dist/`:
 Notes:
 
 * **Build on the target OS.** DMGs need macOS (`hdiutil`, `sips`). From Linux, electron-builder can make macOS `.zip` files but cannot sign them, and Apple-silicon Macs refuse unsigned modified apps. Windows installers can be built on Linux or macOS only with Wine (64- and 32-bit) installed; the `.zip` targets need nothing extra.
-* **Code signing.** Without certificates the Windows installer triggers SmartScreen and the ad-hoc-signed Mac app triggers Gatekeeper on other machines (right-click → Open, or `xattr -dr com.apple.quarantine "/Applications/Ordinance Browser.app"`). electron-builder 26 does not ad-hoc sign by itself, which is why `dist:mac` passes `-c.mac.identity=-`.
+* **Code signing.** Without certificates the Windows installer triggers SmartScreen and the ad-hoc-signed Mac app triggers Gatekeeper on other machines. On macOS 15+ open it once, then use **System Settings → Privacy & Security → Open Anyway** (right-click → Open no longer bypasses Gatekeeper), or run `xattr -dr com.apple.quarantine "/Applications/Ordinance Browser.app"`. electron-builder 26 does not ad-hoc sign by itself, which is why `dist:mac` passes `-c.mac.identity=-`.
 * **CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs unit and end-to-end tests on Ubuntu, then builds natively on `windows-2025` and `macos-15` and uploads the installers as workflow artifacts. Actions are pinned to commit SHAs.
 
 ## Tests
