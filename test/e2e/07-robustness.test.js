@@ -63,7 +63,9 @@ test('[Robustness] fullscreen video, crashed tabs, extension load errors', async
       for (const name of ['render-process-gone', 'did-start-loading', 'did-navigate', 'did-fail-load', 'did-finish-load', 'page-title-updated']) {
         wc.on(name, (_e, ...args) => globalThis.__crashLog.push(`${Date.now() - t0}ms ${name} ${JSON.stringify(args).slice(0, 120)}`));
       }
-      wc.forcefullyCrashRenderer();
+      // Kill the renderer like the OS would on an out-of-memory crash.
+      // (forcefullyCrashRenderer() was a silent no-op on GitHub's Ubuntu runner.)
+      process.kill(wc.getOSProcessId(), 'SIGKILL');
     }, tabId);
     try {
       await h.waitUntil(async () => (await active()).title === 'This page crashed', { message: 'crash page' });
