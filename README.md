@@ -1,19 +1,21 @@
-# Ordinance Browser
+# Chrome2
 
 A minimal desktop web browser built on Electron 45.2.1 (Chromium 156 engine) with tabs, an address bar, bookmarks, history, and Chrome extension support. It also adds compatibility shims so agent-style extensions such as **Claude in Chrome** have the side panel, debugger and tab-group APIs they rely on.
 
-![Ordinance Browser with an extension side panel open](docs/screenshot.png)
+![Chrome2 with an extension side panel open](docs/screenshot.png)
+
+> Name note: "Chrome" is a Google trademark. Chrome2 is an independent project, not affiliated with Google; fine for personal or classroom use, but check before distributing it publicly.
 
 ## Features
 
 | Area | What you get |
 |---|---|
 | Tabs | Open (`+`, Ctrl/Cmd+T), close (`×`, middle-click, Ctrl/Cmd+W), switch (click, Ctrl+Tab), drag to reorder. Links that open new windows become tabs next to their opener; real popups (e.g. OAuth) stay popups. |
-| Address bar | Accepts URLs (`example.com`, `localhost:3000`, `https://…`) or search terms, which go to **DuckDuckGo**. Back, forward, reload/stop and home buttons. Unreachable pages show an error page that keeps the URL. |
+| Address bar | Accepts URLs (`example.com`, `localhost:3000`, `https://…`) or search terms, which go to **Google**. Back, forward, reload/stop and home buttons. Unreachable pages show an error page that keeps the URL. |
 | Robustness | Video/HTML fullscreen hides the toolbar and fills the window (Esc exits). A crashed tab shows a "This page crashed" page and Reload brings it back. |
 | Bookmarks | Star button (Ctrl/Cmd+D) and a Bookmarks panel. Stored in `bookmarks.json`. |
 | History | Every page visit, newest first, searchable, single delete or clear all. Stored in `history.json`. |
-| Extensions | **Load unpacked…** from a folder with `session.extensions.loadExtension`. Extensions are re-loaded on every start, with toolbar buttons, popups, side panels and content scripts. Permissions this browser can't honour are flagged in the Extensions panel. |
+| Extensions | **Add to Chrome** from the Chrome Web Store (with an install prompt and automatic updates), or **Load unpacked…** from a folder with `session.extensions.loadExtension`. Extensions are re-loaded on every start, with toolbar buttons, popups, side panels and content scripts. Permissions this browser can't honour are flagged in the Extensions panel. |
 | Agent extension support | `chrome.debugger` (CDP), `chrome.sidePanel`, `chrome.tabGroups`, `chrome.tabs.group/captureVisibleTab`, `chrome.identity.launchWebAuthFlow`, with Chrome's "… started debugging this tab" banner and its Cancel button. |
 | Site permissions | Camera, microphone, location, notifications and similar requests ask Allow/Block once per site. Electron would otherwise grant them all silently. |
 
@@ -28,6 +30,7 @@ All dependency versions are pinned exactly (`.npmrc` has `save-exact=true`):
 |---|---|---|
 | `electron` | 45.2.1 | Chromium engine and runtime |
 | `electron-chrome-extensions` | 4.10.0 | `chrome.tabs`, `windows`, `action`, `contextMenus`, `cookies`, `notifications`, `webNavigation`, native messaging |
+| `electron-chrome-web-store` | 0.13.0 | Installing and updating extensions from chromewebstore.google.com |
 | `electron-builder` (dev) | 26.18.0 | Windows/macOS packaging |
 | `playwright-core` (dev) | 1.64.1 | End-to-end tests (Electron driver, no browser downloads) |
 
@@ -49,7 +52,7 @@ npm ci
 npm start
 ```
 
-`npm start` opens the browser on the home page (DuckDuckGo). Pass URLs to open them as tabs: `npm start -- https://example.com`.
+`npm start` opens the browser on the home page (Google). Pass URLs to open them as tabs: `npm start -- https://example.com`.
 
 ### Where your data lives
 
@@ -57,13 +60,16 @@ Everything is plain JSON in the app's user-data folder:
 
 | OS | Folder |
 |---|---|
-| Windows | `%APPDATA%\Ordinance Browser` |
-| macOS | `~/Library/Application Support/Ordinance Browser` |
-| Linux | `~/.config/Ordinance Browser` |
+| Windows | `%APPDATA%\Chrome2` |
+| macOS | `~/Library/Application Support/Chrome2` |
+| Linux | `~/.config/Chrome2` |
+
+Upgrading from the older "Ordinance Browser" build moves its folder's contents here on first start (bookmarks, history, extensions and logins), leaving a `MOVED.txt` note behind.
 
 * `bookmarks.json`: `{ "version": 1, "bookmarks": [{ "id", "url", "title", "createdAt" }] }`
 * `history.json`: `{ "version": 1, "entries": [{ "id", "url", "title", "visitedAt" }] }`. Capped at 5,000 entries; repeat visits to the same URL are collapsed.
-* `settings.json`: `homePage`, `searchUrl` (default `https://duckduckgo.com/?q=`), `extensions` (folders to load at start-up) and `ignoredExtensions` (drop-in folders you removed)
+* `settings.json`: `homePage`, `searchUrl` (default `https://www.google.com/search?q=`; `homePage` defaults to `https://www.google.com/`), `extensions` (folders to load at start-up) and `ignoredExtensions` (drop-in folders you removed)
+* `WebStoreExtensions/`: extensions installed from the Chrome Web Store
 * `extensions/`: any unpacked extension folder dropped here is loaded automatically. Removing one in the Extensions panel keeps it removed after a restart.
 
 If a saved extension can't be loaded at start-up (for example, its folder was moved), the Extensions panel lists it with the error and a button to forget it.
@@ -86,13 +92,24 @@ Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-
 
 ## Extensions
 
-1. Click the **grid icon** in the toolbar, then click **Load unpacked…**.
+**From the Chrome Web Store:**
+
+1. Click the **grid icon** in the toolbar, then **Chrome Web Store** (or just browse to chromewebstore.google.com).
+2. Open an extension and click **Add to Chrome**. The button keeps Chrome's wording; it installs into Chrome2.
+3. Confirm the **Add "…"?** prompt. It lists what the extension can do and anything Chrome2 can't support.
+
+Store extensions keep their Chrome extension ID and update automatically every 5 hours. **Remove** in the Extensions panel uninstalls them completely.
+
+**From a folder (unpacked):**
+
+1. Click the **grid icon** in the toolbar, then **Load unpacked…**.
 2. Pick the folder that contains `manifest.json`.
-3. The extension's button appears in the toolbar. Click it to open its popup, its side panel, or fire `chrome.action.onClicked`.
+
+Either way, the extension's button appears in the toolbar. Click it to open its popup or its side panel, or to fire `chrome.action.onClicked`.
 
 The browser loads extensions with `session.extensions.loadExtension`. Electron 36 deprecated `session.loadExtension` and moved it to `session.extensions`; the code falls back to the old call on older Electron. Electron does not remember extensions between runs, so the browser saves the folder path in `settings.json` and re-loads it on start.
 
-Only unpacked extensions work. `.crx` files and the Chrome Web Store do not.
+Local `.crx` files cannot be opened directly. Install from the store, or unzip the extension and load it unpacked.
 
 ### Manifest V3 APIs Electron does not support
 
@@ -130,7 +147,7 @@ To try it:
    * macOS: `~/Library/Application Support/Google/Chrome/Default/Extensions/<id>/<version>_0`
    * Windows: `%LOCALAPPDATA%\Google\Chrome\User Data\Default\Extensions\<id>\<version>_0`
    * Linux: `~/.config/google-chrome/Default/Extensions/<id>/<version>_0`
-3. In Ordinance Browser, use **Load unpacked…** on that copy. Folders copied from a Chrome profile, including their `_metadata` directory, load unchanged. If the manifest has a `key` field, the extension keeps its Chrome ID, which its sign-in redirects and native-messaging hosts depend on.
+3. In Chrome2, use **Load unpacked…** on that copy. Folders copied from a Chrome profile, including their `_metadata` directory, load unchanged. If the manifest has a `key` field, the extension keeps its Chrome ID, which its sign-in redirects and native-messaging hosts depend on.
 4. Sign in to claude.ai in a tab of this browser. Cookies live in this browser's profile, not Chrome's.
 
 Known gaps that may matter for it:
@@ -153,7 +170,7 @@ Outputs land in `dist/`:
 
 | Command | Produces |
 |---|---|
-| `npm run dist:win` | `Ordinance Browser-<ver>-win-x64.exe` and `-win-arm64.exe` (NSIS installers), a combined `-win.exe`, and `.zip` portable builds |
+| `npm run dist:win` | `Chrome2-<ver>-win-x64.exe` and `-win-arm64.exe` (NSIS installers), a combined `-win.exe`, and `.zip` portable builds |
 | `npm run dist:mac` | `-mac-x64.dmg`, `-mac-arm64.dmg` and matching `.zip` files, **ad-hoc signed** |
 | `npm run dist:mac:signed` | Same, signed with the Developer ID certificate in your keychain or `CSC_LINK`, hardened runtime on. Notarisation is not configured. |
 | `npm run dist:linux` | x64 AppImage |
@@ -162,7 +179,7 @@ Outputs land in `dist/`:
 Notes:
 
 * **Build on the target OS.** DMGs need macOS (`hdiutil`, `sips`). From Linux, electron-builder can make macOS `.zip` files but cannot sign them, and Apple-silicon Macs refuse unsigned modified apps. Windows installers can be built on Linux or macOS only with Wine (64- and 32-bit) installed; the `.zip` targets need nothing extra.
-* **Code signing.** Without certificates the Windows installer triggers SmartScreen and the ad-hoc-signed Mac app triggers Gatekeeper on other machines. On macOS 15+ open it once, then use **System Settings → Privacy & Security → Open Anyway** (right-click → Open no longer bypasses Gatekeeper), or run `xattr -dr com.apple.quarantine "/Applications/Ordinance Browser.app"`. electron-builder 26 does not ad-hoc sign by itself, which is why `dist:mac` passes `-c.mac.identity=-`.
+* **Code signing.** Without certificates the Windows installer triggers SmartScreen and the ad-hoc-signed Mac app triggers Gatekeeper on other machines. On macOS 15+ open it once, then use **System Settings → Privacy & Security → Open Anyway** (right-click → Open no longer bypasses Gatekeeper), or run `xattr -dr com.apple.quarantine "/Applications/Chrome2.app"`. electron-builder 26 does not ad-hoc sign by itself, which is why `dist:mac` passes `-c.mac.identity=-`.
 * **CI.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs unit and end-to-end tests on Ubuntu, then builds natively on `windows-2025` and `macos-15` and uploads the installers as workflow artifacts. Actions are pinned to commit SHAs.
 
 ## Tests
@@ -176,13 +193,13 @@ npm run test:e2e
 ```
 
 * `npm test`: unit tests for URL/search parsing, the JSON stores and the extension support table (Node's built-in test runner)
-* `npm run test:e2e`: launches the real app with Playwright's Electron driver and exercises tabs, navigation, extensions, bookmarks/history, the agent stand-in, site permissions, fullscreen, crash recovery and extension load errors. Set `ORDINANCE_APP_PATH=/path/to/packaged/binary` to test a packaged build instead of `electron .`.
+* `npm run test:e2e`: launches the real app with Playwright's Electron driver and exercises tabs, navigation, extensions, bookmarks/history, the agent stand-in, site permissions, fullscreen, crash recovery, extension load errors and Web Store installs (against a stand-in store page). `ORDINANCE_ONLINE=1` also runs `09-claude-online`, which installs the real Claude in Chrome from the live Web Store. Set `ORDINANCE_APP_PATH=/path/to/packaged/binary` to test a packaged build instead of `electron .`.
 
 On Linux the e2e suite needs a display (`xvfb-run -a npm run test:e2e` on a headless box) and **must not run as root**. Chromium refuses to run as root unless given `--no-sandbox`, and Electron skips service-worker preloads without the sandbox, which breaks every MV3 extension API this browser adds. On Ubuntu 24.04 you may also need `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`. The harness launches with `chromiumSandbox: true` for the same reason; Playwright otherwise adds `--no-sandbox` on Linux.
 
 ## Known limitations
 
-* **Extensions:** unpacked only; no Chrome Web Store, `.crx` files or auto-update. See the unsupported API list above. Extensions are not available in private/in-memory sessions (an Electron restriction), so there is no incognito mode. Per electron-chrome-extensions, MV2 background pages are always persistent. If the app's own `session.webRequest` is used, `chrome.webRequest` listeners stop firing.
+* **Extensions:** see the unsupported API list above. Web Store downloads are checked against the store's HTTPS connection and the extension ID, but the CRX signature itself is not verified. They use Node's `fetch`, which ignores system proxy settings, so installs fail behind a corporate proxy. Extensions are not available in private/in-memory sessions (an Electron restriction), so there is no incognito mode. Per electron-chrome-extensions, MV2 background pages are always persistent. If the app's own `session.webRequest` is used, `chrome.webRequest` listeners stop firing.
 * **Address bar:** no suggestions or autocomplete. Host detection is heuristic: `node.js` is treated as a domain because there is no public-suffix list.
 * **Browser features not built:** downloads manager UI (Electron shows a plain save dialog), password manager, autofill, sync, reader mode, multiple profiles, session restore, tab pinning, tab drag between windows, and a visible collapse/title UI for tab groups (only the colour shows).
 * **Site permissions** are remembered only until restart, with no settings page to review them.
@@ -194,9 +211,10 @@ On Linux the e2e suite needs a display (`xvfb-run -a npm run test:e2e` on a head
 ```
 src/main/main.js            app start-up, IPC, menu, extension wiring
 src/main/window.js          one window: tab views, side panel, layout
-src/main/url.js             address-bar input -> URL or DuckDuckGo search
+src/main/url.js             address-bar input -> URL or Google search
+src/main/profile.js         moves the old "Ordinance Browser" profile to Chrome2
 src/main/store.js           bookmarks/history/settings JSON files
-src/main/extensions.js      load/remove/persist unpacked extensions
+src/main/extensions.js      load/remove/persist extensions (unpacked and Web Store)
 src/main/extension-support.js  measured API support table
 src/main/compat/index.js    debugger, sidePanel, tabGroups, identity (main side)
 src/main/permissions.js     site permission prompts

@@ -6,7 +6,7 @@ extension requests every Manifest V3 permission, then reports from its service
 worker which `chrome.*` namespaces exist and whether a real call succeeds.
 
 * **Bare Electron**: `session.extensions.loadExtension` with nothing else, i.e. what Electron itself supports.
-* **Ordinance Browser**: the same probe inside this app (Electron + electron-chrome-extensions + `src/main/compat` shims).
+* **Chrome2**: the same probe inside this app (Electron + electron-chrome-extensions + `src/main/compat` shims).
 
 Raw output: [`api-probe/electron-45.2.1-bare.json`](api-probe/electron-45.2.1-bare.json),
 [`api-probe/ordinance-browser.json`](api-probe/ordinance-browser.json).
@@ -16,7 +16,7 @@ Re-generate with `npm run test:e2e` (writes `test/.tmp/api-probe.json`).
 
 "present" means the namespace exists. That alone does not mean it works; see the call results below.
 
-| API | Bare Electron 45 | Ordinance Browser | Provided by |
+| API | Bare Electron 45 | Chrome2 | Provided by |
 |---|---|---|---|
 | `chrome.accessibilityFeatures` | — | — | not available |
 | `chrome.action` | present | present | Electron (state) + library (toolbar, popups, onClicked) |
@@ -78,7 +78,7 @@ Re-generate with `npm run test:e2e` (writes `test/.tmp/api-probe.json`).
 
 ## Real calls from the service worker
 
-| Call | Bare Electron 45 | Ordinance Browser |
+| Call | Bare Electron 45 | Chrome2 |
 |---|---|---|
 | `storage.local` | ok | ok |
 | `storage.session` | ok | ok |
