@@ -200,7 +200,7 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
         () =>
           app.evaluate(({ BrowserWindow }) => {
             const c = [...globalThis.__ordinance.controllers][0];
-            if (c.sidePanel) return { kind: 'sidePanel', url: c.sidePanel.view.webContents.getURL() };
+            if (c.sidePanel) return { kind: 'sidePanel', url: c.sidePanel.url };
             const popup = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith('chrome-extension://'));
             return popup ? { kind: 'popup', url: popup.webContents.getURL() } : null;
           }),

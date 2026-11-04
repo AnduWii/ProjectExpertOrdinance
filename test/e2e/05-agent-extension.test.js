@@ -29,7 +29,14 @@ test('[Agent extensions] Claude-in-Chrome-style stand-in works end to end', asyn
   let sidePanelUrl;
   await t.test('toolbar button opens the extension side panel (setPanelBehavior)', async () => {
     await ui.click(button);
-    const state = await h.waitUntil(async () => (await h.mainState(app)).sidePanel, { message: 'side panel' });
+    // Wait for the panel's first navigation to commit; before that its URL is ''.
+    const state = await h.waitUntil(
+      async () => {
+        const panel = (await h.mainState(app)).sidePanel;
+        return panel && panel.url ? panel : null;
+      },
+      { message: 'side panel loaded' },
+    );
     sidePanelUrl = state.url;
     assert.equal(state.extensionId, ext.id);
     assert.equal(state.url, `chrome-extension://${ext.id}/sidepanel.html`);
