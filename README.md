@@ -131,30 +131,36 @@ Working in bare Electron 45, though its docs don't list them: `alarms` (fires), 
 
 ## Claude in Chrome
 
-**Status: the APIs it relies on are implemented and tested with a stand-in extension. Claude in Chrome itself has not been run in this browser.** The build environment could not download it: the network policy blocks the Chrome Web Store. The real extension may still fail for reasons nobody can see until it runs. Anthropic officially supports Claude in Chrome on Google Chrome only, and an extension update can break things at any time.
+**Status, measured on 2026-11-04 by the live CI job ([`test/e2e/09-claude-online.test.js`](test/e2e/09-claude-online.test.js)):**
 
-What is covered, and tested end-to-end by [`test/e2e/05-agent-extension.test.js`](test/e2e/05-agent-extension.test.js) using [`test/fixtures/extensions/agent-standin`](test/fixtures/extensions/agent-standin):
+| Step | Result |
+|---|---|
+| Open Claude's page on the real Chrome Web Store | Works, though the store still shows its "Switch to Chrome" banner (cosmetic; see below) |
+| Click **Add to Chrome** | Chrome2's prompt appears, then Claude installs in about 1 second with its real ID `fcoeoabgfenejglbffodgkkbkcdhcgfn` |
+| Click Claude's toolbar icon | Its side panel opens ("Claude for Chrome") on the **Log in** screen |
+| Extension errors / console errors / failed shim calls | None |
+| `chrome.*` APIs referenced in Claude's code | All present in Chrome2 except `downloads` (no-op stub) and `commands` (keyboard shortcuts never fire) |
+| Logged-in use (agent actions on pages) | **Not verified**: it needs a paid Claude account, which CI doesn't have |
 
-* Toolbar click opens the extension's side panel (`side_panel.default_path` + `sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`)
-* `chrome.debugger.attach` / `sendCommand` / `onEvent` / `detach`, driving a tab via CDP: `Runtime.evaluate`, `Page.captureScreenshot`, `Input.dispatchMouseEvent` clicks, `Input.insertText` typing, `Page.reload` events. Chrome's error for a second attach and the "is debugging this tab" banner are both reproduced.
-* `chrome.tabs.create` + `tabs.group` + `tabGroups.update` (the group colour shows on the tab), `scripting.executeScript`, `tabs.captureVisibleTab`, `storage`, `identity.launchWebAuthFlow`
-* None of these shims leak into normal web pages
+Claude uses these APIs most: `tabs` (233 references), `runtime` (218), `storage` (136), `tabGroups` (67), `windows` (36), `alarms` (31), `scripting`, `declarativeNetRequest`, `debugger`, `action`, `webNavigation`, `notifications`, `sidePanel`, `offscreen`, `permissions` and `identity`. Every one exists in Chrome2. `debugger`, `sidePanel`, `tabGroups` and `identity` come from this repo's shims, which the stand-in extension test ([`test/e2e/05-agent-extension.test.js`](test/e2e/05-agent-extension.test.js)) drives end to end: CDP clicks and typing, screenshots, tab groups and the web-auth flow.
 
-To try it:
+Anthropic supports Claude in Chrome on Google Chrome; in Chrome2 it is unsupported and an extension update can change what it needs.
 
-1. In Google Chrome, install Claude in Chrome, open `chrome://extensions`, turn on **Developer mode**, and note its ID and version.
-2. Copy the installed folder somewhere stable. Chrome keeps it at:
-   * macOS: `~/Library/Application Support/Google/Chrome/Default/Extensions/<id>/<version>_0`
-   * Windows: `%LOCALAPPDATA%\Google\Chrome\User Data\Default\Extensions\<id>\<version>_0`
-   * Linux: `~/.config/google-chrome/Default/Extensions/<id>/<version>_0`
-3. In Chrome2, use **Load unpacked…** on that copy. Folders copied from a Chrome profile, including their `_metadata` directory, load unchanged. If the manifest has a `key` field, the extension keeps its Chrome ID, which its sign-in redirects and native-messaging hosts depend on.
-4. Sign in to claude.ai in a tab of this browser. Cookies live in this browser's profile, not Chrome's.
+**Install it:**
+
+1. Click the **grid icon**, then **Chrome Web Store**, and search for **Claude**. Or go straight to https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn
+2. Ignore the blue "Switch to Chrome" banner. Click **Add to Chrome**, then **Add extension**.
+3. Click the orange Claude icon in the toolbar. The side panel opens; click **Log in**.
+4. Sign in to claude.ai in the tab that opens. Use **Continue with email** if Google sign-in refuses: Google often blocks sign-in from browsers it doesn't recognise ("This browser or app may not be secure").
 
 Known gaps that may matter for it:
 
-* **Claude Code / Claude Desktop integration** uses native messaging. electron-chrome-extensions looks for host manifests in Chrome's locations (`NativeMessagingHosts` folders on macOS/Linux, the HKCU/HKLM `Software\Google\Chrome\NativeMessagingHosts` registry keys on Windows) and in `<user data>/NativeMessagingHosts`. A host only answers if its `allowed_origins` lists the extension ID, so the ID must match (see step 3). This path is untested.
-* No automatic updates: copy a new version and load it again.
-* Not implemented: per-tab side-panel switching (the panel is per window), `tabs.onMoved` events, and the `downloads`, `history`, `bookmarks`, `tabCapture`, `desktopCapture` and `system.display` APIs. If the extension needs one of these, that feature will not work.
+* **Claude Code / Claude Desktop integration** uses native messaging. electron-chrome-extensions looks for host manifests in Chrome's locations (`NativeMessagingHosts` folders on macOS/Linux, the HKCU/HKLM `Software\Google\Chrome\NativeMessagingHosts` registry keys on Windows) and in `<user data>/NativeMessagingHosts`. Store installs keep Claude's Chrome ID, so hosts that allow it should answer. Untested.
+* Claude's download features (`chrome.downloads`) and keyboard shortcuts (`chrome.commands`) won't work.
+* Per-tab side panels: the panel is per window.
+
+Prefer not to use the store? Loading a copy of the installed folder from a Chrome profile also works:
+`~/Library/Application Support/Google/Chrome/Default/Extensions/<id>/<version>_0` on macOS, `%LOCALAPPDATA%\Google\Chrome\User Data\Default\Extensions\<id>\<version>_0` on Windows. Use **Load unpacked…** on it.
 
 ## Build installers
 
@@ -204,7 +210,7 @@ On Linux the e2e suite needs a display (`xvfb-run -a npm run test:e2e` on a head
 * **Browser features not built:** downloads manager UI (Electron shows a plain save dialog), password manager, autofill, sync, reader mode, multiple profiles, session restore, tab pinning, tab drag between windows, and a visible collapse/title UI for tab groups (only the colour shows).
 * **Site permissions** are remembered only until restart, with no settings page to review them.
 * **Security model:** tabs run sandboxed with context isolation and no Node.js. The toolbar UI talks to the main process over a fixed IPC allow-list. Extension shims check the calling extension's manifest permissions in the main process. Electron's Chromium is patched on Electron's release schedule, not Chrome's, so keep `electron` current.
-* **Sites that sniff the browser:** the user agent drops the `Electron/` token so sites see a normal Chrome UA, but `navigator.userAgentData.brands` still differs from Google Chrome.
+* **Sites that sniff the browser:** the user agent drops the `Electron/` token so sites see a normal Chrome UA, but `navigator.userAgentData.brands` and the `Sec-CH-UA` headers still differ from Google Chrome. That's why the Chrome Web Store keeps showing "Switch to Chrome" even though installing works. Changing those headers would need `session.webRequest`, which would stop other extensions' `chrome.webRequest` listeners, so it isn't done.
 
 ## Project layout
 
