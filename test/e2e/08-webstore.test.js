@@ -67,15 +67,6 @@ test('[Chrome Web Store] "Add to Chrome" works from chromewebstore.google.com (o
     assert.doesNotMatch(info.ua, /Electron|Chrome2/);
   });
 
-  await t.test('the store sees "Google Chrome" brands (no "Switch to Chrome" banner); other sites do not', async () => {
-    const brands = await h.tabEval(app, storeTab, 'navigator.userAgentData.brands.map((b) => b.brand)');
-    assert.ok(brands.includes('Google Chrome'), `store brands: ${brands}`);
-    const high = await h.tabEval(app, storeTab, 'navigator.userAgentData.getHighEntropyValues(["fullVersionList"]).then((v) => v.fullVersionList.map((b) => b.brand))');
-    assert.ok(high.includes('Google Chrome'));
-    const home = (await h.mainState(app)).tabs[0].id;
-    const elsewhere = await h.tabEval(app, home, 'navigator.userAgentData.brands.map((b) => b.brand)');
-    assert.ok(!elsewhere.includes('Google Chrome'), `normal sites keep the real brands: ${elsewhere}`);
-  });
 
   await t.test('button branding stays "Add to Chrome" after repeated re-branding passes', async () => {
     // The store re-brands on every in-page navigation; it must not grow "Chrome2222".

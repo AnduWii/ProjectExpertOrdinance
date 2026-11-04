@@ -41,8 +41,8 @@ const SUPPORTED = {
   identity: 'shim',
 };
 
-/** Present as an object but calls do nothing useful. */
-const STUBS = ['downloads', 'privacy', 'topSites', 'system.display'];
+/** Present as an object but calls do nothing useful (commands: getAll is empty, onCommand never fires). */
+const STUBS = ['downloads', 'privacy', 'topSites', 'system.display', 'commands'];
 
 /** No chrome.* namespace at all. */
 const MISSING = [
