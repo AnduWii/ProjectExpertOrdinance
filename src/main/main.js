@@ -4,11 +4,17 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain, session, Menu, dialog } = require('electron');
 const { migrateLegacyProfile } = require('./profile');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
+const {
+  installChromeWebStore,
+  installExtension: installWebStoreExtension,
+  uninstallExtension: uninstallWebStoreExtension,
+} = require('electron-chrome-web-store');
 const { BrowserWindowController } = require('./window');
 const { Bookmarks, History, Settings } = require('./store');
 const { ExtensionManager } = require('./extensions');
 const { ExtensionCompat } = require('./compat');
 const { PermissionManager } = require('./permissions');
+const { describePermissions, unsupportedPermissions } = require('./extension-support');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) {
@@ -25,6 +31,7 @@ if (process.env.ORDINANCE_USER_DATA) {
 }
 
 const PARTITION = 'persist:ordinance';
+const WEB_STORE_URL = 'https://chromewebstore.google.com/';
 const controllers = new Set();
 const ctx = {
   session: null,
@@ -153,6 +160,7 @@ function registerIpc() {
     }
   });
   uiHandle('extensions:remove', (_c, id) => ctx.extensions.remove(String(id)));
+  uiHandle('extensions:webstore', (c) => c.createTab({ url: WEB_STORE_URL }).id);
   uiHandle('extensions:errors', () => ctx.extensions.errors());
   uiHandle('extensions:forget', (_c, dir) => ctx.extensions.forget(String(dir)));
   uiHandle('extensions:activate', (c, id, anchorRect) => activateExtensionAction(c, String(id), anchorRect));
@@ -220,9 +228,65 @@ function createExtensionSupport() {
     },
   });
 
-  ctx.extensions = new ExtensionManager({ session: ctx.session, settings: ctx.settings, userDataDir: app.getPath('userData') });
+  ctx.webStoreDir = path.join(app.getPath('userData'), 'WebStoreExtensions');
+  ctx.extensions = new ExtensionManager({
+    session: ctx.session,
+    settings: ctx.settings,
+    userDataDir: app.getPath('userData'),
+    webStoreDir: ctx.webStoreDir,
+    uninstallFromWebStore: (id) => uninstallWebStoreExtension(id, { session: ctx.session, extensionsPath: ctx.webStoreDir }),
+  });
   ctx.extensions.on('changed', () => broadcast('extensions:state', ctx.extensions.list()));
   ctx.extensions.on('removed', (id) => ctx.compat.forgetExtension(id));
+}
+
+/** Chrome-style "Add extension?" prompt shown before a Web Store install. */
+async function confirmWebStoreInstall({ localizedName, manifest, icon, browserWindow }) {
+  const can = describePermissions(manifest);
+  const missing = unsupportedPermissions(manifest);
+  const detail = [
+    can.length ? `It can:\n• ${can.join('\n• ')}` : 'It needs no special permissions.',
+    missing.length ? `\nNot available in ${app.getName()}: ${missing.join(', ')}` : '',
+  ]
+    .join('\n')
+    .trim();
+  const options = {
+    type: 'question',
+    buttons: ['Add extension', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'Add extension',
+    message: `Add "${localizedName}"?`,
+    detail,
+    ...(icon && !icon.isEmpty() ? { icon: icon.resize({ width: 64, height: 64 }) } : {}),
+  };
+  const parent = browserWindow || focusedController()?.win;
+  const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+  return { action: response === 0 ? 'allow' : 'deny' };
+}
+
+/** Let chromewebstore.google.com install ("Add to Chrome2") and auto-update extensions. */
+async function setupWebStore() {
+  try {
+    await installChromeWebStore({
+      session: ctx.session,
+      extensionsPath: ctx.webStoreDir,
+      loadExtensions: true,
+      autoUpdate: true,
+      beforeInstall: confirmWebStoreInstall,
+    });
+    // The store page swaps "Chrome" for this name in its buttons on every
+    // navigation. A name containing "Chrome" ("Chrome2") would snowball into
+    // "Add to Chrome2222…", so report plain "Chrome" (buttons read as in Chrome).
+    const channel = 'chromeWebstore.getFullChromeVersion';
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, (event) => {
+      if (!event.senderFrame?.origin?.startsWith(WEB_STORE_URL.replace(/\/$/, ''))) return undefined;
+      return { version_number: process.versions.chrome, app_name: 'Chrome' };
+    });
+  } catch (err) {
+    console.warn(`[webstore] Chrome Web Store support unavailable: ${err.message}`);
+  }
 }
 
 // ------------------------------------------------------------------ menu
@@ -352,6 +416,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     buildMenu();
     // Load extensions before the first tab so content scripts see it.
+    await setupWebStore();
     await ctx.extensions.loadSaved();
     createWindow(startupUrls(process.argv));
 
@@ -368,6 +433,13 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // End-to-end tests drive the app through this handle (never set in normal use).
-if (process.env.ORDINANCE_TEST === '1') globalThis.__ordinance = { ctx, controllers, createWindow };
+if (process.env.ORDINANCE_TEST === '1') {
+  globalThis.__ordinance = {
+    ctx,
+    controllers,
+    createWindow,
+    installWebStoreExtension: (id) => installWebStoreExtension(id, { session: ctx.session, extensionsPath: ctx.webStoreDir }),
+  };
+}
 
 module.exports = { ctx, controllers, createWindow };

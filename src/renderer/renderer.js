@@ -362,7 +362,7 @@ async function renderExtensions() {
     ...items.map((x) =>
       listItem({
         primary: `${x.name} ${x.version}`,
-        secondary: x.id,
+        secondary: `${x.source === 'webstore' ? 'Chrome Web Store' : 'Unpacked'} · ${x.id}`,
         lead: x.icon ? el('img', { class: 'ext-icon', src: x.icon, alt: '' }) : null,
         extra: x.unsupported?.length
           ? el('span', { class: 'warn' }, `Not available in this browser: ${x.unsupported.join(', ')}`)
@@ -374,6 +374,8 @@ async function renderExtensions() {
   );
   $('#extension-empty').hidden = items.length + errors.length > 0;
 }
+
+$('#extension-webstore').addEventListener('click', () => api.openWebStore());
 
 $('#extension-load').addEventListener('click', async () => {
   const result = await api.loadExtension();

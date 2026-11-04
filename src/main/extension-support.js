@@ -79,4 +79,43 @@ function unsupportedPermissions(manifest) {
   return [...new Set(out)];
 }
 
-module.exports = { PROVIDERS, SUPPORTED, STUBS, MISSING, UNSUPPORTED, unsupportedPermissions };
+// Chrome's install-prompt wording for the permissions that warrant one.
+const PERMISSION_WARNINGS = {
+  debugger: 'Access the page debugger backend',
+  tabs: 'Read your browsing history',
+  webNavigation: 'Read your browsing history',
+  tabGroups: 'View and manage your tab groups',
+  history: 'Read and change your browsing history',
+  bookmarks: 'Read and change your bookmarks',
+  nativeMessaging: 'Communicate with cooperating native applications',
+  notifications: 'Display notifications',
+  downloads: 'Manage your downloads',
+  clipboardRead: 'Read data you copy and paste',
+  clipboardWrite: 'Modify data you copy and paste',
+  desktopCapture: 'Capture content of your screen',
+  tabCapture: 'Capture content of your screen',
+  geolocation: 'Detect your physical location',
+  management: 'Manage your apps, extensions, and themes',
+  privacy: 'Change your privacy-related settings',
+  proxy: 'Read and change all your data on all websites',
+  pageCapture: 'Read and change all your data on all websites',
+};
+
+const ALL_SITES = /^(<all_urls>|\*:\/\/\*\/\*|https?:\/\/\*\/\*)$/;
+
+/** Human-readable list of what an extension can do, for the install prompt. */
+function describePermissions(manifest) {
+  const perms = [...(manifest.permissions || [])];
+  const hosts = [
+    ...(manifest.host_permissions || []),
+    ...perms.filter((p) => typeof p === 'string' && p.includes('://')),
+    ...(manifest.content_scripts || []).flatMap((c) => c.matches || []),
+  ];
+  const out = [];
+  if (hosts.some((h) => ALL_SITES.test(h)) || perms.includes('<all_urls>')) out.push('Read and change all your data on all websites');
+  else if (hosts.length) out.push(`Read and change your data on ${[...new Set(hosts)].slice(0, 3).join(', ')}${hosts.length > 3 ? ' and more' : ''}`);
+  for (const p of perms) if (PERMISSION_WARNINGS[p]) out.push(PERMISSION_WARNINGS[p]);
+  return [...new Set(out)];
+}
+
+module.exports = { PROVIDERS, SUPPORTED, STUBS, MISSING, UNSUPPORTED, unsupportedPermissions, describePermissions };

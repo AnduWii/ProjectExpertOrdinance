@@ -89,15 +89,15 @@ class PermissionManager {
     if (this.pending.has(key)) return this.pending.get(key);
 
     const parent = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-    const prompt = dialog
-      .showMessageBox(parent, {
-        type: 'question',
-        buttons: ['Allow', 'Block'],
-        defaultId: 1,
-        cancelId: 1,
-        message: `${new URL(origin).host} wants to ${what}`,
-        detail: 'Your choice is remembered for this site until the browser restarts.',
-      })
+    const options = {
+      type: 'question',
+      buttons: ['Allow', 'Block'],
+      defaultId: 1,
+      cancelId: 1,
+      message: `${new URL(origin).host} wants to ${what}`,
+      detail: 'Your choice is remembered for this site until the browser restarts.',
+    };
+    const prompt = (parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options))
       .then(({ response }) => {
         const allowed = response === 0;
         this.decisions.set(key, allowed);

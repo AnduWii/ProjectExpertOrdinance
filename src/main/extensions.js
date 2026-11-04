@@ -52,16 +52,45 @@ function pickIcon(manifest) {
 
 class ExtensionManager extends EventEmitter {
   /**
-   * @param {{session: Electron.Session, settings: import('./store').Settings, userDataDir: string}} opts
+   * @param {object} opts
+   * @param {Electron.Session} opts.session
+   * @param {import('./store').Settings} opts.settings
+   * @param {string} opts.userDataDir
+   * @param {string} [opts.webStoreDir] where Chrome Web Store installs live
+   * @param {(id: string) => Promise<void>} [opts.uninstallFromWebStore]
    */
-  constructor({ session, settings, userDataDir }) {
+  constructor({ session, settings, userDataDir, webStoreDir = null, uninstallFromWebStore = null }) {
     super();
     this.session = session;
     this.settings = settings;
     this.userDataDir = userDataDir;
+    this.webStoreDir = webStoreDir;
+    this.uninstallFromWebStore = uninstallFromWebStore;
     this.sources = new Map(); // extension id -> folder the user picked
     this.iconCache = new Map();
     this.loadErrors = [];
+    this.changePending = false;
+    // Extensions also arrive from the Chrome Web Store installer and its
+    // auto-updater, so refresh the UI on every load/unload, whoever did it.
+    if (typeof this.api.on === 'function') {
+      this.api.on('extension-loaded', () => this.changed());
+      this.api.on('extension-unloaded', () => this.changed());
+    }
+  }
+
+  changed() {
+    if (this.changePending) return;
+    this.changePending = true;
+    setImmediate(() => {
+      this.changePending = false;
+      this.emit('changed');
+    });
+  }
+
+  isWebStoreInstall(ext) {
+    if (!this.webStoreDir || !ext?.path) return false;
+    const rel = path.relative(this.webStoreDir, ext.path);
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
   }
 
   /**
@@ -120,7 +149,7 @@ class ExtensionManager extends EventEmitter {
       if (this.ignored().includes(source)) this.settings.set('ignoredExtensions', this.ignored().filter((p) => p !== source));
     }
     this.loadErrors = this.loadErrors.filter((e) => e.path !== source);
-    this.emit('changed');
+    this.changed();
     return this.describe(ext, manifest);
   }
 
@@ -148,9 +177,17 @@ class ExtensionManager extends EventEmitter {
     return this.list();
   }
 
-  remove(id) {
+  async remove(id) {
     const ext = this.api.getExtension(id);
     if (!ext) return false;
+    if (this.isWebStoreInstall(ext) && this.uninstallFromWebStore) {
+      // Unloads it and deletes its files, so it does not come back on restart.
+      await this.uninstallFromWebStore(id);
+      this.iconCache.delete(id);
+      this.emit('removed', id);
+      this.changed();
+      return true;
+    }
     this.api.removeExtension(id);
     const source = this.sources.get(id) || ext.path;
     this.sources.delete(id);
@@ -160,7 +197,7 @@ class ExtensionManager extends EventEmitter {
     // Drop-in folders are re-scanned on start-up, so remember the removal.
     if (this.isDropIn(source)) this.settings.set('ignoredExtensions', [...new Set([...this.ignored(), source])]);
     this.emit('removed', id);
-    this.emit('changed');
+    this.changed();
     return true;
   }
 
@@ -174,7 +211,7 @@ class ExtensionManager extends EventEmitter {
     this.loadErrors = this.loadErrors.filter((e) => e.path !== dir);
     this.settings.set('extensions', (this.settings.get('extensions') || []).filter((p) => p !== dir));
     if (this.isDropIn(dir)) this.settings.set('ignoredExtensions', [...new Set([...this.ignored(), dir])]);
-    this.emit('changed');
+    this.changed();
     return true;
   }
 
@@ -216,6 +253,7 @@ class ExtensionManager extends EventEmitter {
       hasAction: !!action,
       hasPopup: !!action?.default_popup,
       hasSidePanel: !!manifest.side_panel?.default_path,
+      source: this.isWebStoreInstall(ext) ? 'webstore' : 'unpacked',
       unsupported: unsupportedPermissions(manifest),
     };
   }
