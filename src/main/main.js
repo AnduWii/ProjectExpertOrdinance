@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain, session, Menu, dialog } = require('electron');
+const { migrateLegacyProfile } = require('./profile');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { BrowserWindowController } = require('./window');
 const { Bookmarks, History, Settings } = require('./store');
@@ -10,7 +11,18 @@ const { ExtensionCompat } = require('./compat');
 const { PermissionManager } = require('./permissions');
 
 // Tests (and power users) can point the profile somewhere else.
-if (process.env.ORDINANCE_USER_DATA) app.setPath('userData', path.resolve(process.env.ORDINANCE_USER_DATA));
+if (process.env.ORDINANCE_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.ORDINANCE_USER_DATA));
+} else {
+  // Renamed from "Ordinance Browser": bring the old profile along (must run
+  // before anything, including the single-instance lock, touches userData).
+  try {
+    const moved = migrateLegacyProfile(app.getPath('appData'), app.getPath('userData'));
+    if (moved) console.log(`[profile] migrated ${moved} -> ${app.getPath('userData')}`);
+  } catch (err) {
+    console.warn(`[profile] could not migrate the old profile: ${err.message}`);
+  }
+}
 
 const PARTITION = 'persist:ordinance';
 const controllers = new Set();
@@ -31,7 +43,7 @@ const ctx = {
 
 /** Strip the "Electron/x" and app-name tokens so sites see a normal Chrome UA. */
 function chromeLikeUserAgent(ua) {
-  const names = [app.getName(), 'Electron', 'ordinance-browser'].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const names = [app.getName(), 'Electron'].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   return ua.replace(new RegExp(`\\s(${names.join('|')})\\/\\S+`, 'g'), '');
 }
 

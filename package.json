@@ -1,6 +1,6 @@
 {
-  "name": "ordinance-browser",
-  "productName": "Ordinance Browser",
+  "name": "chrome2",
+  "productName": "Chrome2",
   "version": "0.1.0",
   "description": "A minimal Chromium-based desktop web browser built on Electron.",
   "main": "src/main/main.js",
@@ -25,6 +25,7 @@
     "playwright-core": "1.64.1"
   },
   "dependencies": {
-    "electron-chrome-extensions": "4.10.0"
+    "electron-chrome-extensions": "4.10.0",
+    "electron-chrome-web-store": "0.13.0"
   }
 }

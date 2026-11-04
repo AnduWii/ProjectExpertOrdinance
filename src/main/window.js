@@ -8,7 +8,7 @@
 
 const path = require('node:path');
 const EventEmitter = require('node:events');
-const { BrowserWindow, WebContentsView, Menu, clipboard } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, clipboard } = require('electron');
 const { normalizeInput } = require('./url');
 
 const SIDE_PANEL_WIDTH = 400;
@@ -61,7 +61,7 @@ class BrowserWindowController extends EventEmitter {
       height: 820,
       minWidth: 560,
       minHeight: 360,
-      title: 'Ordinance Browser',
+      title: app.getName(),
       show: false,
       backgroundColor: '#eef0f3',
       webPreferences: {

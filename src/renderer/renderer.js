@@ -171,7 +171,7 @@ function renderNav() {
   reload.setAttribute('aria-label', tab?.loading ? 'Stop' : 'Reload');
   if (!state.editingAddress) $('#address').value = displayUrl(tab?.url);
   $('#bookmark-star').setAttribute('aria-pressed', String(!!tab?.bookmarked));
-  document.title = tab?.title ? `${tab.title} – Ordinance Browser` : 'Ordinance Browser';
+  document.title = tab?.title ? `${tab.title} – Chrome2` : 'Chrome2';
 
   const banner = $('#debug-banner');
   if (tab?.debuggedBy) {

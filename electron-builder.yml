@@ -1,6 +1,6 @@
 # electron-builder 26 configuration. Run `npm run dist:win` / `npm run dist:mac`.
-appId: com.anduwii.ordinancebrowser
-productName: Ordinance Browser
+appId: com.anduwii.chrome2
+productName: Chrome2
 copyright: Copyright © 2026 AnduWii
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
