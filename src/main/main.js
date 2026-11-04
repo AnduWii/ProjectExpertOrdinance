@@ -268,6 +268,12 @@ async function confirmWebStoreInstall({ localizedName, manifest, icon, browserWi
 /** Let chromewebstore.google.com install ("Add to Chrome2") and auto-update extensions. */
 async function setupWebStore() {
   try {
+    ctx.session.registerPreloadScript({
+      id: 'chrome2-webstore-brands',
+      type: 'frame',
+      filePath: path.join(__dirname, '..', 'preload', 'webstore-preload.js'),
+      matches: ['https://chromewebstore.google.com/*'],
+    });
     await installChromeWebStore({
       session: ctx.session,
       extensionsPath: ctx.webStoreDir,
