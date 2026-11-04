@@ -15,6 +15,21 @@ const ONLINE = process.env.ORDINANCE_ONLINE === '1';
 const CLAUDE_ID = 'fcoeoabgfenejglbffodgkkbkcdhcgfn';
 const STORE_URL = `https://chromewebstore.google.com/detail/claude/${CLAUDE_ID}`;
 const SUPPORTED_PROBE = path.join(h.ROOT, 'docs', 'api-probe', 'ordinance-browser.json');
+const { STUBS, MISSING } = require('../../src/main/extension-support');
+
+/** Screenshot a webContents to test/.tmp; GPU-less CI runners can fail this, which is not a test failure. */
+async function snap(app, wcIdOrUi, file) {
+  try {
+    const b64 = await app.evaluate(async ({ webContents }, id) => {
+      const wc = id === 'ui' ? [...globalThis.__ordinance.controllers][0].ui : webContents.fromId(id);
+      return (await wc.capturePage()).toPNG().toString('base64');
+    }, wcIdOrUi);
+    fs.writeFileSync(path.join(h.ARTIFACTS, file), Buffer.from(b64, 'base64'));
+    return true;
+  } catch (err) {
+    return `screenshot failed: ${err.message}`;
+  }
+}
 
 /** chrome.* namespaces referenced anywhere in the extension's JavaScript. */
 function scanApiUsage(dir) {
@@ -51,7 +66,7 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
     report.console = (await app.evaluate(() => globalThis.__consoleLog).catch(() => [])) || [];
     report.compatCalls = (await app.evaluate(() => globalThis.__compatCalls).catch(() => [])) || [];
     save();
-    console.log('CLAUDE REPORT SUMMARY', JSON.stringify({ steps: report.steps, unsupportedUsed: report.unsupportedUsed, extensionErrors: report.extensionErrors.length, consoleErrors: report.console.filter((c) => c.level >= 2).slice(0, 25), compatErrors: report.compatCalls.filter((c) => c.error).slice(0, 25) }, null, 2));
+    console.log('CLAUDE REPORT SUMMARY', JSON.stringify({ steps: report.steps, apiUsage: report.apiUsage, unsupportedUsed: report.unsupportedUsed, extensionErrors: report.extensionErrors.slice(0, 10), consoleErrors: report.console.filter((c) => c.level >= 2).slice(0, 25), compatErrors: report.compatCalls.filter((c) => c.error).slice(0, 25) }, null, 2));
     await app.close().catch(() => {});
   });
 
@@ -94,7 +109,7 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
   });
 
   let tabId;
-  await t.test('Web Store page loads with the install API and no "Switch to Chrome" banner', async () => {
+  await t.test('Web Store page loads with the install API', async () => {
     tabId = await app.evaluate((_e, url) => [...globalThis.__ordinance.controllers][0].createTab({ url }).id, STORE_URL);
     const page = await h.waitUntil(
       () =>
@@ -105,10 +120,12 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
     );
     report.steps.storeApi = page.api;
     report.steps.switchToChromeBanner = /Switch to Chrome/.test(page.text);
-    await app.evaluate(({ webContents }, id) => webContents.fromId(id).capturePage().then((img) => img.toPNG().toString('base64')), tabId).then((b64) =>
-      fs.writeFileSync(path.join(h.ARTIFACTS, 'claude-store-page.png'), Buffer.from(b64, 'base64')),
-    );
+    report.steps.storeScreenshot = await snap(app, tabId, 'claude-store-page.png');
     assert.equal(page.api, 'object');
+  });
+
+  await t.test('no "Switch to Chrome" banner on the store page', async () => {
+    assert.equal(report.steps.switchToChromeBanner, false);
   });
 
   await t.test('"Add to Chrome" installs Claude after the confirmation prompt', async () => {
@@ -167,8 +184,13 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
     report.manifest = info;
     const usage = scanApiUsage(info.path);
     const supported = JSON.parse(fs.readFileSync(SUPPORTED_PROBE, 'utf8')).sw.paths;
-    report.apiUsage = Object.fromEntries(Object.entries(usage).sort((a, b) => b[1] - a[1]).map(([ns, n]) => [ns, { refs: n, inChrome2: supported[ns] === undefined ? 'not probed' : supported[ns] !== 'missing' }]));
-    report.unsupportedUsed = Object.entries(report.apiUsage).filter(([, v]) => v.inChrome2 === false).map(([ns]) => ns);
+    const works = (ns) => {
+      if (MISSING.includes(ns)) return false;
+      if (STUBS.includes(ns)) return 'stub (calls do nothing)';
+      return supported[ns] === undefined ? 'not probed' : supported[ns] !== 'missing';
+    };
+    report.apiUsage = Object.fromEntries(Object.entries(usage).sort((a, b) => b[1] - a[1]).map(([ns, n]) => [ns, { refs: n, inChrome2: works(ns) }]));
+    report.unsupportedUsed = Object.entries(report.apiUsage).filter(([, v]) => v.inChrome2 !== true).map(([ns, v]) => `${ns}: ${v.inChrome2}`);
     save();
     assert.equal(info.described.source, 'webstore');
   });
@@ -193,15 +215,12 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
     if (opened.kind === 'sidePanel') {
       const panel = await app.evaluate(async () => {
         const wc = [...globalThis.__ordinance.controllers][0].sidePanel.view.webContents;
-        const png = (await wc.capturePage()).toPNG().toString('base64');
         const text = await wc.executeJavaScript('document.body ? document.body.innerText.slice(0, 1500) : ""').catch((e) => `error: ${e.message}`);
-        return { png, text, title: wc.getTitle() };
+        return { id: wc.id, text, title: wc.getTitle() };
       });
-      fs.writeFileSync(path.join(h.ARTIFACTS, 'claude-side-panel.png'), Buffer.from(panel.png, 'base64'));
-      report.steps.sidePanel = { title: panel.title, text: panel.text };
+      report.steps.sidePanel = { title: panel.title, text: panel.text, screenshot: await snap(app, panel.id, 'claude-side-panel.png') };
     }
-    const full = await app.evaluate(async () => (await [...globalThis.__ordinance.controllers][0].win.webContents.capturePage()).toPNG().toString('base64'));
-    fs.writeFileSync(path.join(h.ARTIFACTS, 'claude-window-ui.png'), Buffer.from(full, 'base64'));
+    report.steps.uiScreenshot = await snap(app, 'ui', 'claude-window-ui.png');
     save();
     assert.notEqual(opened.kind, 'nothing', 'toolbar click opened something');
   });
