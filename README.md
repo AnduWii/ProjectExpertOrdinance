@@ -12,7 +12,8 @@ A minimal desktop web browser built on Electron 45.2.1 (Chromium 156 engine) wit
 |---|---|
 | Tabs | Open (`+`, Ctrl/Cmd+T), close (`×`, middle-click, Ctrl/Cmd+W), switch (click, Ctrl+Tab), drag to reorder. Links that open new windows become tabs next to their opener; real popups (e.g. OAuth) stay popups. |
 | Address bar | Accepts URLs (`example.com`, `localhost:3000`, `https://…`) or search terms, which go to **Google**. Back, forward, reload/stop and home buttons. Unreachable pages show an error page that keeps the URL. |
-| Robustness | Video/HTML fullscreen hides the toolbar and fills the window (Esc exits). A crashed tab shows a "This page crashed" page and Reload brings it back. |
+| Robustness | Video/HTML fullscreen hides the toolbar and fills the window (Esc exits). A crashed tab shows a "This page crashed" page and Reload brings it back. A frozen page gets Chrome's "Page Unresponsive" prompt (Wait / Exit page). Error pages say what stopped a page: an extension, a policy on this computer, the network's filter or proxy, or an untrusted certificate. |
+| Start-up | The window always opens: slow or broken extensions keep loading in the background instead of holding it back, and a start that failed is followed by a safe-mode start without extensions. See [If Chrome2 won't open](#if-chrome2-wont-open). |
 | Bookmarks | Star button (Ctrl/Cmd+D) and a Bookmarks panel. Stored in `bookmarks.json`. |
 | History | Every page visit, newest first, searchable, single delete or clear all. Stored in `history.json`. |
 | Import | Copies bookmarks and history from Google Chrome, Edge, Brave, Arc, Vivaldi or Chromium. See [Import from another browser](#import-from-another-browser). |
@@ -72,10 +73,27 @@ Upgrading from the older "Ordinance Browser" build moves its folder's contents h
 * `settings.json`: `homePage`, `searchUrl` (default `https://www.google.com/search?q=`; `homePage` defaults to `https://www.google.com/`), `extensions` (folders to load at start-up) and `ignoredExtensions` (drop-in folders you removed)
 * `WebStoreExtensions/`: extensions installed from the Chrome Web Store
 * `extensions/`: any unpacked extension folder dropped here is loaded automatically. Removing one in the Extensions panel keeps it removed after a restart.
+* `logs/main.log`: warnings, errors and crashes from the browser itself (rotated at 1 MB to `main.log.old`). Send this file when reporting a problem.
+* `startup-in-progress`: exists only while Chrome2 is starting. If it is still there at the next launch, that launch uses safe mode.
 
 If a saved extension can't be loaded at start-up (for example, its folder was moved), the Extensions panel lists it with the error and a button to forget it.
 
 Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-<timestamp>`, not overwritten.
+
+### If Chrome2 won't open
+
+1. **It may already be running.** Only one copy runs at a time; opening it again hands over to the running one. If no window appears, quit Chrome2 in Activity Monitor (macOS) or Task Manager (Windows), then open it again.
+2. **Safe mode.** If a start never got a window on screen, the next start skips extensions and shows a notice; quitting and reopening loads them again. To force it, start Chrome2 with `--safe-mode`:
+
+   ```bash
+   open -a Chrome2 --args --safe-mode
+   ```
+
+   On Windows, run `Chrome2.exe --safe-mode` from its install folder. From source: `npm start -- --safe-mode`.
+3. **Read the log.** `logs/main.log` in the data folder (above) records why a start failed. If start-up itself fails, Chrome2 shows the error and exits, instead of sitting invisible in the background.
+4. **macOS says it "can't be opened" or "is damaged", or Windows shows "Windows protected your PC":** that is the operating system refusing an unsigned download, not a crash. See *Code signing* under [Build installers](#build-installers).
+
+Extensions get 8 seconds to load before the first window opens anyway (`ORDINANCE_EXTENSION_WAIT_MS` changes this); after that they finish loading in the background.
 
 ### Keyboard shortcuts
 
@@ -207,8 +225,8 @@ npm test
 npm run test:e2e
 ```
 
-* `npm test`: unit tests for URL/search parsing, the JSON stores and the extension support table (Node's built-in test runner)
-* `npm run test:e2e`: launches the real app with Playwright's Electron driver and exercises tabs, navigation, extensions, bookmarks/history, the agent stand-in, site permissions, fullscreen, crash recovery, extension load errors and Web Store installs (against a stand-in store page). `ORDINANCE_ONLINE=1` also runs `09-claude-online`, which installs the real Claude in Chrome from the live Web Store. Set `ORDINANCE_APP_PATH=/path/to/packaged/binary` to test a packaged build instead of `electron .`.
+* `npm test`: unit tests for URL/search parsing, the JSON stores, the extension support table, the start-up helpers and the error-page messages (Node's built-in test runner)
+* `npm run test:e2e`: launches the real app with Playwright's Electron driver and exercises tabs, navigation, extensions, bookmarks/history, the agent stand-in, site permissions, fullscreen, crash recovery, extension load errors, start-up safety (slow extensions, safe mode) and Web Store installs (against a stand-in store page). `ORDINANCE_ONLINE=1` also runs `09-claude-online`, which installs the real Claude in Chrome from the live Web Store. Set `ORDINANCE_APP_PATH=/path/to/packaged/binary` to test a packaged build instead of `electron .`.
 
 On Linux the e2e suite needs a display (`xvfb-run -a npm run test:e2e` on a headless box) and **must not run as root**. Chromium refuses to run as root unless given `--no-sandbox`, and Electron skips service-worker preloads without the sandbox, which breaks every MV3 extension API this browser adds. On Ubuntu 24.04 you may also need `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`. The harness launches with `chromiumSandbox: true` for the same reason; Playwright otherwise adds `--no-sandbox` on Linux.
 
@@ -229,6 +247,7 @@ src/main/main.js            app start-up, IPC, menu, extension wiring
 src/main/window.js          one window: tab views, side panel, layout
 src/main/url.js             address-bar input -> URL or Google search
 src/main/profile.js         moves the old "Ordinance Browser" profile to Chrome2
+src/main/startup.js         start-up safety net: log file, extension time limit, safe mode
 src/main/store.js           bookmarks/history/settings JSON files
 src/main/extensions.js      load/remove/persist extensions (unpacked and Web Store)
 src/main/extension-support.js  measured API support table
