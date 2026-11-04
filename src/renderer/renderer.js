@@ -216,6 +216,11 @@ $('#bookmark-star').addEventListener('click', async () => {
   await api.toggleBookmark();
 });
 
+$('#import-browser').addEventListener('click', async () => {
+  await api.importFromBrowser();
+  if (state.panel === 'bookmarks') renderBookmarks();
+});
+
 // --------------------------------------------------------- side panel
 
 function renderLayout() {

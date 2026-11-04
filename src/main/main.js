@@ -15,6 +15,7 @@ const { ExtensionManager } = require('./extensions');
 const { ExtensionCompat } = require('./compat');
 const { PermissionManager } = require('./permissions');
 const { describePermissions, unsupportedPermissions } = require('./extension-support');
+const { listSources: listImportSources, importFrom } = require('./import-chrome');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) {
@@ -145,6 +146,8 @@ function registerIpc() {
   uiHandle('history:remove', (_c, id) => ctx.history.remove(String(id)));
   uiHandle('history:clear', () => ctx.history.clear());
 
+  uiHandle('import:start', (c) => runImportFlow(c));
+
   uiHandle('extensions:list', () => ctx.extensions.list());
   uiHandle('extensions:load', async (c) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(c.win, {
@@ -182,6 +185,64 @@ function activateExtensionAction(c, extensionId, anchorRect) {
     alignment: 'bottom left',
   });
   return true;
+}
+
+/**
+ * Walk the user through importing bookmarks/history from another Chromium
+ * browser, using native dialogs. Imports data only — never logins or passwords.
+ * Returns the import result (or null if cancelled); tests read it.
+ */
+async function runImportFlow(controller) {
+  const win = controller.win;
+  const sources = ctx.importSourcesOverride || listImportSources();
+  if (!sources.length) {
+    await dialog.showMessageBox(win, {
+      type: 'info',
+      message: 'No other browser found to import from',
+      detail: 'Chrome2 looks for Google Chrome, Microsoft Edge, Brave, Vivaldi or Chromium on this computer. Open one of those at least once, then try again.',
+    });
+    return null;
+  }
+
+  const labels = sources.map((s) => `${s.browser} — ${s.profile}  (${s.bookmarkCount} bookmarks${s.hasHistory ? ', history' : ''})`);
+  const pick = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: 'Import from another browser',
+    detail: 'Pick a profile. This copies bookmarks and history only — never passwords, cookies or logins. To sign in, sign in inside Chrome2 once.',
+    buttons: [...labels, 'Cancel'],
+    cancelId: labels.length,
+    defaultId: 0,
+  });
+  if (pick.response >= labels.length) return null;
+  const source = sources[pick.response];
+
+  const what = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: `Import from ${source.browser} — ${source.profile}?`,
+    detail: 'Bookmarks you already have are skipped.',
+    buttons: ['Bookmarks + History', 'Bookmarks only', 'Cancel'],
+    cancelId: 2,
+    defaultId: 0,
+  });
+  if (what.response === 2) return null;
+
+  const result = importFrom(
+    source.id,
+    { bookmarks: ctx.bookmarks, history: ctx.history },
+    { bookmarks: true, history: what.response === 0 },
+  );
+  refreshAllTabs();
+  broadcast('bookmarks:changed');
+
+  await dialog.showMessageBox(win, {
+    type: result.errors.length ? 'warning' : 'info',
+    message: 'Import complete',
+    detail:
+      `Added ${result.bookmarksAdded} bookmark${result.bookmarksAdded === 1 ? '' : 's'} and ` +
+      `${result.historyAdded} history entr${result.historyAdded === 1 ? 'y' : 'ies'} from ${source.browser}.` +
+      (result.errors.length ? `\n\nSome items could not be read:\n${result.errors.join('\n')}` : ''),
+  });
+  return result;
 }
 
 function createExtensionSupport() {
@@ -373,6 +434,8 @@ function buildMenu() {
           }),
         },
         { label: 'Show Bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: uiCommand('toggle-panel', { view: 'bookmarks' }) },
+        { type: 'separator' },
+        { label: 'Import From Another Browser…', click: withController((c) => runImportFlow(c)) },
       ],
     },
     {

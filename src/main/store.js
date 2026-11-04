@@ -131,6 +131,35 @@ class History {
     return entry;
   }
 
+  /**
+   * Bulk-merge entries from another browser. Each carries its own visitedAt.
+   * URLs already in history are skipped; the result stays sorted oldest→newest
+   * and capped at maxEntries. Returns how many were added.
+   */
+  import(entries) {
+    const existing = new Set(this.data.entries.map((e) => e.url));
+    let added = 0;
+    for (const e of entries) {
+      if (!isRecordable(e.url) || existing.has(e.url)) continue;
+      existing.add(e.url);
+      this.data.entries.push({
+        id: crypto.randomUUID(),
+        url: e.url,
+        title: e.title || e.url,
+        visitedAt: e.visitedAt || new Date().toISOString(),
+      });
+      added += 1;
+    }
+    if (added) {
+      this.data.entries.sort((a, b) => String(a.visitedAt).localeCompare(String(b.visitedAt)));
+      if (this.data.entries.length > this.maxEntries) {
+        this.data.entries.splice(0, this.data.entries.length - this.maxEntries);
+      }
+      this.flush();
+    }
+    return added;
+  }
+
   updateTitle(url, title) {
     for (let i = this.data.entries.length - 1; i >= 0; i--) {
       if (this.data.entries[i].url === url) {

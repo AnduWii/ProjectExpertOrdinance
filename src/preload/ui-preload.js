@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('browserAPI', {
   removeHistory: invoke('history:remove'),
   clearHistory: invoke('history:clear'),
 
+  importFromBrowser: invoke('import:start'),
+
   listExtensions: invoke('extensions:list'),
   loadExtension: invoke('extensions:load'),
   removeExtension: invoke('extensions:remove'),
