@@ -1,19 +1,27 @@
 :root {
-  --bg: #e9ecf0;
-  --toolbar: #f7f8fa;
-  --tab: transparent;
-  --tab-hover: #dde1e7;
+  /* Chrome Refresh palette. --frame is the title-bar/tab-strip; --surface is
+     the toolbar and the active tab, which share a colour so the active tab
+     melts into the toolbar below it. */
+  --frame: #dde1e6;
+  --surface: #ffffff;
+  --toolbar: #ffffff;
+  --tab-hover: rgba(0, 0, 0, 0.05);
   --tab-active: #ffffff;
-  --text: #1d2228;
-  --muted: #5f6873;
-  --border: #d3d8de;
-  --field: #ffffff;
-  --field-border: #c9cfd6;
-  --accent: #2563eb;
+  --text: #1f1f1f;
+  --muted: #5e5e5e;
+  --border: #e3e3e3;
+  --field: #f0f1f3;
+  --field-hover: #e8eaed;
+  --field-focus: #ffffff;
+  --field-border: transparent;
+  --accent: #0b57d0;
   --accent-text: #ffffff;
+  --hover-ink: rgba(0, 0, 0, 0.06);
+  --hover-ink-strong: rgba(0, 0, 0, 0.1);
   --star: #e8a400;
-  --warn-bg: #fff4d6;
+  --warn-bg: #fde9c8;
   --warn-text: #6b4e00;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
   --panel-w: 340px;
   --side-w: 0px;
   --chrome-h: 84px;
@@ -22,18 +30,25 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1b1e23;
-    --toolbar: #25292f;
-    --tab-hover: #2f343b;
-    --tab-active: #353a42;
-    --text: #e7eaee;
-    --muted: #9aa3ad;
-    --border: #3a4048;
-    --field: #1b1e23;
-    --field-border: #454c55;
-    --accent: #5b8cff;
-    --warn-bg: #3d3214;
+    --frame: #1f1f1f;
+    --surface: #2b2b2b;
+    --toolbar: #2b2b2b;
+    --tab-hover: rgba(255, 255, 255, 0.07);
+    --tab-active: #2b2b2b;
+    --text: #e3e3e3;
+    --muted: #a8a8a8;
+    --border: #3c3c3c;
+    --field: #ffffff14;
+    --field-hover: #ffffff1f;
+    --field-focus: #202124;
+    --field-border: transparent;
+    --accent: #a8c7fa;
+    --accent-text: #062e6f;
+    --hover-ink: rgba(255, 255, 255, 0.1);
+    --hover-ink-strong: rgba(255, 255, 255, 0.16);
+    --warn-bg: #413111;
     --warn-text: #f3d98b;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -46,7 +61,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--frame);
   color: var(--text);
   font: 13px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   user-select: none;
@@ -57,7 +72,7 @@ svg {
   height: 18px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.7;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -70,20 +85,26 @@ button {
 .icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   flex: none;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  transition: background 0.12s ease;
 }
 .icon-btn.small {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
 }
 .icon-btn:hover:not(:disabled) {
-  background: var(--tab-hover);
+  background: var(--hover-ink);
+  color: var(--text);
+}
+.icon-btn:active:not(:disabled) {
+  background: var(--hover-ink-strong);
 }
 .icon-btn:disabled {
   opacity: 0.35;
@@ -98,22 +119,22 @@ button {
 #chrome {
   position: fixed;
   inset: 0 0 auto 0;
-  background: var(--bg);
+  background: var(--frame);
 }
 
 #tabstrip {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
-  height: 40px;
-  padding: 6px 8px 0;
+  gap: 0;
+  height: 44px;
+  padding: 10px 8px 0;
   -webkit-app-region: drag;
 }
 #tabs {
   display: flex;
   min-width: 0;
   flex: 0 1 auto;
-  gap: 2px;
+  gap: 0;
   height: 34px;
 }
 #tabstrip button,
@@ -121,36 +142,92 @@ button {
   -webkit-app-region: no-drag;
 }
 #new-tab {
-  margin-bottom: 2px;
+  width: 30px;
+  height: 30px;
+  margin: 0 0 2px 6px;
 }
 
 .tab {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 220px;
-  min-width: 56px;
-  flex: 0 1 220px;
+  gap: 9px;
+  width: 240px;
+  min-width: 54px;
+  flex: 0 1 240px;
   height: 34px;
-  padding: 0 6px 0 12px;
+  padding: 0 8px 0 14px;
   border-radius: 10px 10px 0 0;
   background: var(--tab);
+  color: var(--muted);
   cursor: default;
+}
+/* Thin divider between adjacent inactive tabs, Chrome-style. */
+.tab::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  opacity: 1;
+  transition: opacity 0.1s;
+}
+.tab:hover::after,
+.tab:last-child::after,
+.tab.active::after,
+.tab.active + .tab::after,
+.tab:has(+ .tab:hover)::after,
+.tab:has(+ .tab.active)::after {
+  opacity: 0;
 }
 .tab:hover {
   background: var(--tab-hover);
 }
+.tab:hover::after {
+  opacity: 0;
+}
 .tab.active {
-  background: var(--toolbar);
+  background: var(--surface);
+  color: var(--text);
+  z-index: 2;
+}
+/* The two curved "feet" that flare the active tab out into the toolbar. */
+.tab.active::before,
+.tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  opacity: 1;
+  top: auto;
+}
+.tab.active::before {
+  left: -10px;
+  -webkit-mask-image: radial-gradient(circle at 0 0, transparent 10px, #000 10.5px);
+  mask-image: radial-gradient(circle at 0 0, transparent 10px, #000 10.5px);
+}
+.tab.active::after {
+  right: -10px;
+  -webkit-mask-image: radial-gradient(circle at 100% 0, transparent 10px, #000 10.5px);
+  mask-image: radial-gradient(circle at 100% 0, transparent 10px, #000 10.5px);
+}
+.tab.grouped {
+  margin-top: 3px;
+  border-radius: 8px 8px 0 0;
 }
 .tab.grouped::before {
   content: '';
   position: absolute;
-  inset: 0 10px auto 10px;
+  inset: -3px 0 auto 0;
   height: 3px;
-  border-radius: 0 0 3px 3px;
+  border-radius: 3px 3px 0 0;
   background: var(--group-color);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .tab .favicon,
 .tab .spinner,
@@ -180,6 +257,9 @@ button {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-size: 12px;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
 }
 .tab .debug-dot {
   width: 8px;
@@ -189,9 +269,14 @@ button {
   background: #e5484d;
 }
 .tab .close {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.tab .close:hover {
+  background: var(--hover-ink-strong);
+  color: var(--text);
 }
 .tab .close svg {
   width: 14px;
@@ -213,10 +298,9 @@ button {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 44px;
+  height: 46px;
   padding: 0 8px;
   background: var(--toolbar);
-  border-bottom: 1px solid var(--border);
 }
 #reload .when-loading,
 #reload.loading .when-idle {
@@ -231,16 +315,21 @@ button {
   display: flex;
   align-items: center;
   min-width: 120px;
-  height: 32px;
-  margin: 0 6px;
-  padding: 0 4px 0 12px;
+  height: 34px;
+  margin: 0 8px;
+  padding: 0 6px 0 14px;
   border: 1px solid var(--field-border);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--field);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+#address-form:hover {
+  background: var(--field-hover);
 }
 #address-form:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--field-focus);
+  border-color: transparent;
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 #address {
   flex: 1;
@@ -252,6 +341,9 @@ button {
   font: inherit;
   font-size: 14px;
   user-select: text;
+}
+#address::placeholder {
+  color: var(--muted);
 }
 #bookmark-star[aria-pressed='true'] {
   color: var(--star);
@@ -269,7 +361,7 @@ button {
   height: 18px;
 }
 #extension-actions .icon-btn.open {
-  background: var(--tab-hover);
+  background: var(--hover-ink);
 }
 
 #debug-banner {
@@ -279,7 +371,7 @@ button {
   padding: 6px 12px;
   background: var(--warn-bg);
   color: var(--warn-text);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 #debug-banner[hidden] {
   display: none;
@@ -289,9 +381,9 @@ button {
 }
 #debug-cancel {
   border: 1px solid currentColor;
-  border-radius: 6px;
+  border-radius: 14px;
   background: transparent;
-  padding: 2px 10px;
+  padding: 3px 12px;
   cursor: pointer;
 }
 
@@ -305,7 +397,7 @@ button {
   width: var(--panel-w);
   display: flex;
   flex-direction: column;
-  background: var(--toolbar);
+  background: var(--surface);
   border-left: 1px solid var(--border);
   user-select: text;
 }
@@ -316,19 +408,24 @@ button {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 8px;
+  padding: 10px 10px 8px;
   border-bottom: 1px solid var(--border);
 }
 .panel-tabs button[data-view] {
   border: 0;
-  border-radius: 6px;
+  border-radius: 16px;
   background: transparent;
-  padding: 5px 10px;
+  color: var(--muted);
+  padding: 6px 14px;
   cursor: pointer;
+  transition: background 0.12s ease;
+}
+.panel-tabs button[data-view]:hover {
+  background: var(--hover-ink);
 }
 .panel-tabs button[data-view][aria-selected='true'] {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
 }
 #panel-close {
   margin-left: auto;
@@ -338,7 +435,7 @@ button {
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  padding: 8px;
+  padding: 10px;
   overflow: auto;
 }
 #panel section.active {
@@ -347,30 +444,43 @@ button {
 .row {
   display: flex;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .row input {
   flex: 1;
   min-width: 0;
-  padding: 6px 10px;
-  border: 1px solid var(--field-border);
-  border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 18px;
   background: var(--field);
   color: var(--text);
   font: inherit;
 }
+.row input:focus {
+  outline: 0;
+  background: var(--field-focus);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
 .text-btn,
 .primary-btn {
-  border: 1px solid var(--field-border);
-  border-radius: 8px;
-  background: var(--field);
-  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--accent);
+  padding: 7px 16px;
   cursor: pointer;
+  transition: background 0.12s ease;
+}
+.text-btn:hover {
+  background: var(--hover-ink);
 }
 .primary-btn {
-  border-color: var(--accent);
+  border-color: transparent;
   background: var(--accent);
   color: var(--accent-text);
+}
+.primary-btn:hover {
+  filter: brightness(1.05);
 }
 .hint {
   margin: 0 0 8px;
@@ -389,18 +499,19 @@ button {
 .item-list li {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
 }
 .item-list li:hover {
-  background: var(--tab-hover);
+  background: var(--hover-ink);
 }
 .item-list .open {
   flex: 1;
   min-width: 0;
   border: 0;
   background: transparent;
+  color: inherit;
   text-align: left;
   padding: 0;
   cursor: pointer;
@@ -440,12 +551,12 @@ button {
   top: var(--chrome-h);
   right: 0;
   width: var(--side-w);
-  height: 34px;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 6px 0 12px;
-  background: var(--toolbar);
+  padding: 0 6px 0 14px;
+  background: var(--surface);
   border-left: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   font-weight: 600;
