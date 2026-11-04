@@ -8,7 +8,7 @@
 
 const path = require('node:path');
 const EventEmitter = require('node:events');
-const { app, BrowserWindow, WebContentsView, Menu, clipboard } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, clipboard, dialog } = require('electron');
 const { normalizeInput } = require('./url');
 
 const SIDE_PANEL_WIDTH = 400;
@@ -18,7 +18,53 @@ const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const CANT_REACH = "Can't reach this page";
+const BLOCKED = 'This page was blocked';
 const CRASHED = 'This page crashed';
+// Show the window even if the toolbar UI never reports ready-to-show.
+const SHOW_ANYWAY_MS = 5000;
+
+/**
+ * Say who stopped a page from loading. Chrome2 itself blocks nothing; these
+ * come from extensions, this computer's policies, the network, or the site.
+ * @returns {{heading: string, detail: string}}
+ */
+function describeLoadError(code, description) {
+  const what = `${description} (${code})`;
+  const filter = 'If other sites load, a firewall or web filter on this network (or security software on this computer) may be blocking it.';
+  const say = (heading, why) => ({ heading, detail: `${why} ${what}` });
+  switch (code) {
+    case -20: // ERR_BLOCKED_BY_CLIENT
+      return say(BLOCKED, 'An extension blocked this page. Remove or update the extension in the Extensions panel, then reload.');
+    case -22: // ERR_BLOCKED_BY_ADMINISTRATOR
+      return say(BLOCKED, 'A policy set by whoever manages this computer blocked this page.');
+    case -27: // ERR_BLOCKED_BY_RESPONSE
+      return say(BLOCKED, 'The site refused to be shown this way.');
+    case -105: // ERR_NAME_NOT_RESOLVED
+      return say(CANT_REACH, `The address couldn't be found. Check the spelling. ${filter}`);
+    case -106: // ERR_INTERNET_DISCONNECTED
+      return say(CANT_REACH, 'This computer is offline. Check Wi-Fi or the network cable, then reload.');
+    case -111: // ERR_TUNNEL_CONNECTION_FAILED
+    case -130: // ERR_PROXY_CONNECTION_FAILED
+      return say(CANT_REACH, "The network's proxy server refused to connect to this site. Proxies are set in this computer's network settings.");
+    case -100: // ERR_CONNECTION_CLOSED
+    case -101: // ERR_CONNECTION_RESET
+    case -102: // ERR_CONNECTION_REFUSED
+    case -109: // ERR_ADDRESS_UNREACHABLE
+    case -118: // ERR_CONNECTION_TIMED_OUT
+      return say(CANT_REACH, `The connection was cut off. ${filter}`);
+    case -310: // ERR_TOO_MANY_REDIRECTS
+      return say(CANT_REACH, 'The site keeps redirecting. Clearing its cookies usually fixes this.');
+    default:
+      if (code <= -200 && code > -300) {
+        return say(
+          'Your connection is not private',
+          "The site's security certificate isn't trusted, so Chrome2 stopped before sending anything. " +
+            "If this network inspects encrypted traffic, its certificate has to be installed on this computer first.",
+        );
+      }
+      return { heading: CANT_REACH, detail: what };
+  }
+}
 
 function errorPage(heading, url, detail) {
   return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(heading)}</title>
@@ -74,6 +120,10 @@ class BrowserWindowController extends EventEmitter {
     this.ui = this.win.webContents;
     this.win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     this.win.once('ready-to-show', () => this.win.show());
+    const showAnyway = setTimeout(() => {
+      if (!this.win.isDestroyed() && !this.win.isVisible()) this.win.show();
+    }, SHOW_ANYWAY_MS);
+    this.win.once('show', () => clearTimeout(showAnyway));
     for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
       this.win.on(ev, () => this.layout());
     }
@@ -138,7 +188,13 @@ class BrowserWindowController extends EventEmitter {
     wc.on('did-fail-load', (_e, code, description, validatedURL, isMainFrame) => {
       // -3 is ERR_ABORTED: user stopped, or a download/redirect replaced it.
       if (!isMainFrame || code === -3) return;
-      this.showErrorPage(tab, validatedURL, CANT_REACH, `${description} (${code})`);
+      const { heading, detail } = describeLoadError(code, description);
+      this.showErrorPage(tab, validatedURL, heading, detail);
+    });
+    // A page stuck in a loop freezes only its own tab; offer to stop it.
+    wc.on('unresponsive', () => this.offerToStopPage(tab));
+    wc.on('responsive', () => {
+      tab.unresponsive = false;
     });
     wc.on('render-process-gone', (_e, details) => {
       if (details.reason === 'clean-exit') return;
@@ -185,6 +241,23 @@ class BrowserWindowController extends EventEmitter {
     wc.on('destroyed', () => {
       if (this.tabs.has(tab.id)) this.closeTab(tab.id);
     });
+  }
+
+  /** Chrome's "Page Unresponsive" prompt: wait, or end the page's process. */
+  async offerToStopPage(tab) {
+    if (tab.unresponsive || tab.wc.isDestroyed()) return;
+    tab.unresponsive = true;
+    const { response } = await dialog.showMessageBox(this.win, {
+      type: 'warning',
+      message: 'Page Unresponsive',
+      detail: `"${tab.title || tab.url}" isn't responding. You can wait for it, or exit the page and reload it later.`,
+      buttons: ['Exit page', 'Wait'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    const stillStuck = tab.unresponsive;
+    tab.unresponsive = false;
+    if (response === 0 && stillStuck && !tab.wc.isDestroyed()) tab.wc.forcefullyCrashRenderer();
   }
 
   showErrorPage(tab, url, heading, detail) {
@@ -475,4 +548,4 @@ class BrowserWindowController extends EventEmitter {
   }
 }
 
-module.exports = { BrowserWindowController, SIDE_PANEL_WIDTH, SIDE_PANEL_HEADER };
+module.exports = { BrowserWindowController, SIDE_PANEL_WIDTH, SIDE_PANEL_HEADER, describeLoadError };
