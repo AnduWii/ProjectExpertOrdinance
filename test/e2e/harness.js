@@ -85,8 +85,8 @@ function tempProfile(name) {
 }
 
 /** Launch the browser. Returns { app, ui } where ui is the toolbar page. */
-async function launch({ userData, home, args = [] }) {
-  const env = { ...process.env, ORDINANCE_TEST: '1', ORDINANCE_USER_DATA: userData, ORDINANCE_HOME: home };
+async function launch({ userData, home, args = [], env: extraEnv = {} }) {
+  const env = { ...process.env, ORDINANCE_TEST: '1', ORDINANCE_USER_DATA: userData, ORDINANCE_HOME: home, ...extraEnv };
   delete env.NODE_OPTIONS; // Electron rejects some Node flags (e.g. --use-openssl-ca)
   // ORDINANCE_APP_PATH runs the suite against a packaged build instead of `electron .`
   const packaged = process.env.ORDINANCE_APP_PATH;

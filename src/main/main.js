@@ -17,6 +17,7 @@ const { ExtensionCompat } = require('./compat');
 const { PermissionManager } = require('./permissions');
 const { describePermissions, unsupportedPermissions } = require('./extension-support');
 const { scan: scanImportSources, sourcesFromFolder, defaultDataDir, importFrom } = require('./import-chrome');
+const { installLog, withTimeout, StartupGuard } = require('./startup');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) {
@@ -32,8 +33,14 @@ if (process.env.ORDINANCE_USER_DATA) {
   }
 }
 
+// Everything after this point is mirrored to <userData>/logs/main.log.
+const log = installLog(app.getPath('userData'));
+const startupGuard = new StartupGuard(app.getPath('userData'));
+
 const PARTITION = 'persist:ordinance';
 const WEB_STORE_URL = 'https://chromewebstore.google.com/';
+// Extensions get this long to load before the first window opens anyway.
+const EXTENSION_WAIT_MS = Number(process.env.ORDINANCE_EXTENSION_WAIT_MS) || 8000;
 const controllers = new Set();
 const ctx = {
   session: null,
@@ -46,6 +53,9 @@ const ctx = {
   decorateTab: (tab) => ctx.compat?.decorateTab(tab) || {},
   onTabClosed: (tab) => ctx.compat?.onTabClosed(tab),
   getHomePage: () => process.env.ORDINANCE_HOME || ctx.settings.get('homePage'),
+  safeMode: null, // {reason} when this start skipped extensions
+  extensionsDeferred: false, // true when the window opened before extensions finished loading
+  logFile: log.file,
 };
 
 // --------------------------------------------------------------- helpers
@@ -101,7 +111,7 @@ function registerIpc() {
   uiHandle('ui:ready', (c) => {
     c.emitState();
     c.emitLayout();
-    c.send('extensions:state', ctx.extensions.list());
+    c.send('extensions:state', ctx.extensions?.list() || []);
     return true;
   });
   uiHandle('ui:layout', (c, insets) => c.setInsets(insets || {}));
@@ -522,39 +532,134 @@ function buildMenu() {
 
 // ------------------------------------------------------------- lifecycle
 
+// Never let one bad callback take the whole browser down.
+process.on('uncaughtException', (err) => console.error('[main] uncaught exception:', err));
+process.on('unhandledRejection', (err) => console.error('[main] unhandled rejection:', err));
+
+let started = false;
+const pendingUrls = []; // URLs from a second launch that arrived mid-start-up
+
+/**
+ * Load extensions, but never let them hold the first window back. The returned
+ * promise resolves as soon as loading is done OR the budget runs out —
+ * whichever comes first — so the caller can open the window without waiting
+ * for a slow or hung extension. `ctx.extensionsLoading` settles when loading
+ * has actually finished.
+ */
+function loadExtensions() {
+  // Both register their preloads synchronously, before the first page loads.
+  // ORDINANCE_EXTENSION_DELAY_MS lets the e2e suite make loading take a known,
+  // long time so the "window opens first" guarantee can be checked without
+  // racing a short timer; it is never set in normal use.
+  const delay = Number(process.env.ORDINANCE_EXTENSION_DELAY_MS) || 0;
+  const start = delay ? new Promise((r) => setTimeout(r, delay)) : Promise.resolve();
+  ctx.extensionsLoaded = false;
+  const work = start
+    .then(() => Promise.allSettled([setupWebStore(), ctx.extensions.loadSaved()]))
+    .then(() => {
+      ctx.extensionsLoaded = true;
+    });
+  ctx.extensionsLoading = work;
+  const deferred = {};
+  // Note: not `return work` — that would make the window wait for loading.
+  return withTimeout(work, EXTENSION_WAIT_MS, { label: 'loading extensions', fallback: deferred }).then((res) => {
+    // The window opened before loading finished (slow or hung extensions).
+    ctx.extensionsDeferred = res === deferred && !ctx.extensionsLoaded;
+  });
+}
+
+async function startBrowser() {
+  const dir = app.getPath('userData');
+  // The marker stays until a window is on screen (see startup.js).
+  const lastStartFailed = startupGuard.begin();
+  const safe =
+    process.argv.includes('--safe-mode') || process.env.ORDINANCE_SAFE_MODE === '1'
+      ? 'you started it with --safe-mode'
+      : lastStartFailed
+        ? 'the last start did not finish'
+        : null;
+
+  ctx.settings = new Settings(dir);
+  ctx.bookmarks = new Bookmarks(dir);
+  ctx.history = new History(dir);
+  ctx.session = session.fromPartition(PARTITION);
+  ctx.session.setUserAgent(chromeLikeUserAgent(ctx.session.getUserAgent()));
+  try {
+    new PermissionManager({ session: ctx.session, isInstalledExtension: (id) => !!ctx.extensions?.get(id) }).install();
+  } catch (err) {
+    console.error('[startup] site permission prompts unavailable:', err);
+  }
+  try {
+    createExtensionSupport();
+  } catch (err) {
+    console.error('[startup] extension support unavailable:', err);
+  }
+  registerIpc();
+  buildMenu();
+
+  if (safe) {
+    ctx.safeMode = { reason: safe };
+    console.warn(`[startup] safe mode (${safe}): extensions were not loaded`);
+  } else if (ctx.extensions) {
+    // Load extensions before the first tab so content scripts see it.
+    await loadExtensions();
+  }
+
+  const c = createWindow([...startupUrls(process.argv), ...pendingUrls.splice(0)]);
+  started = true;
+  c.win.once('show', () => {
+    startupGuard.succeeded();
+    if (safe) showSafeModeNotice(c, safe);
+  });
+}
+
+function showSafeModeNotice(c, reason) {
+  dialog
+    .showMessageBox(c.win, {
+      type: 'warning',
+      message: `${app.getName()} started without extensions`,
+      detail:
+        `Extensions were not loaded because ${reason}. Everything else works normally. ` +
+        `Quit and reopen ${app.getName()} to load them again.\n\nDetails are in ${log.file}`,
+      buttons: ['OK'],
+    })
+    .catch(() => {});
+}
+
+function failedToStart(err) {
+  console.error('[startup] could not start:', err);
+  // A windowless process would keep the single-instance lock and make every
+  // later launch quit silently, so say what happened and exit.
+  dialog.showErrorBox(
+    `${app.getName()} could not start`,
+    `${err?.stack || err}\n\nThe full log is in ${log.file}\n\nIf this keeps happening, start ${app.getName()} with --safe-mode.`,
+  );
+  app.exit(1);
+}
+
 if (!app.requestSingleInstanceLock()) {
+  // Another Chrome2 is running: it opens a window (or our URLs) for us.
   app.quit();
 } else {
   app.on('second-instance', (_e, argv) => {
+    if (!started) {
+      pendingUrls.push(...startupUrls(argv));
+      return;
+    }
     const c = focusedController() || createWindow();
     for (const url of startupUrls(argv)) c.createTab({ url });
     if (c.win.isMinimized()) c.win.restore();
+    if (!c.win.isVisible()) c.win.show();
     c.win.focus();
+  });
+
+  app.on('activate', () => {
+    if (started && controllers.size === 0) createWindow();
   });
 
   app.userAgentFallback = chromeLikeUserAgent(app.userAgentFallback);
 
-  app.whenReady().then(async () => {
-    const dir = app.getPath('userData');
-    ctx.settings = new Settings(dir);
-    ctx.bookmarks = new Bookmarks(dir);
-    ctx.history = new History(dir);
-    ctx.session = session.fromPartition(PARTITION);
-    ctx.session.setUserAgent(chromeLikeUserAgent(ctx.session.getUserAgent()));
-    new PermissionManager({ session: ctx.session, isInstalledExtension: (id) => !!ctx.extensions?.get(id) }).install();
-
-    createExtensionSupport();
-    registerIpc();
-    buildMenu();
-    // Load extensions before the first tab so content scripts see it.
-    await setupWebStore();
-    await ctx.extensions.loadSaved();
-    createWindow(startupUrls(process.argv));
-
-    app.on('activate', () => {
-      if (controllers.size === 0) createWindow();
-    });
-  });
+  app.whenReady().then(startBrowser).catch(failedToStart);
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
