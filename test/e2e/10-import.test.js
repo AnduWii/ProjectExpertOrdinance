@@ -13,8 +13,8 @@ const h = require('./harness');
 
 const toChromeTime = (date) => (date.getTime() + 11644473600000) * 1000;
 
-function fakeChromeProfile() {
-  const dir = h.tempProfile('fake-chrome');
+function fakeChromeProfile(dir = h.tempProfile('fake-chrome')) {
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'Bookmarks'),
     JSON.stringify({
@@ -42,9 +42,10 @@ function fakeChromeProfile() {
 }
 
 // Make runImportFlow use our fake profile and answer the native dialogs.
-async function arrange(app, { source, responses }) {
+// `folder` is what the "Choose Folder…" picker returns (null = cancelled).
+async function arrange(app, { source, responses, folder = null }) {
   await app.evaluate(
-    ({ dialog }, [src, resp]) => {
+    ({ dialog }, [src, resp, picked]) => {
       const ctx = globalThis.__ordinance.ctx;
       ctx.importSourcesOverride = src ? [{ id: src, browser: 'Google Chrome', profile: 'Default', bookmarkCount: 2, hasHistory: true }] : [];
       globalThis.__dialogs = [];
@@ -53,8 +54,12 @@ async function arrange(app, { source, responses }) {
         globalThis.__dialogs.push({ message: opts.message, buttons: opts.buttons, detail: opts.detail });
         return { response: resp[i++] ?? 0 };
       };
+      dialog.showOpenDialog = async (_win, opts) => {
+        globalThis.__dialogs.push({ picker: true, defaultPath: opts.defaultPath, properties: opts.properties });
+        return picked ? { canceled: false, filePaths: [picked] } : { canceled: true, filePaths: [] };
+      };
     },
-    [source, responses],
+    [source, responses, folder],
   );
 }
 
@@ -121,12 +126,45 @@ test('[Import] bookmarks and history from another browser', async (t) => {
   });
 
   await t.test('with no other browser installed, it says so and changes nothing', async () => {
-    await arrange(app, { source: null, responses: [0] });
+    await arrange(app, { source: null, responses: [1] }); // "Cancel"
     const before = readJson('bookmarks.json').bookmarks.length;
     await ui.click('#import-browser');
     await h.waitUntil(async () => (await app.evaluate(() => globalThis.__dialogs)).length === 1, { message: 'info dialog' });
     const [dialog] = await app.evaluate(() => globalThis.__dialogs);
     assert.match(dialog.message, /No other browser found/);
+    assert.deepEqual(dialog.buttons, ['Choose Folder…', 'Cancel']);
     assert.equal(readJson('bookmarks.json').bookmarks.length, before);
+  });
+
+  await t.test('"Choose Folder…" imports from a browser folder you pick', async () => {
+    // Chrome's own folder (not the profile inside it), laid out as on macOS,
+    // the way you'd pick it in Finder.
+    const chromeDir = path.join(h.tempProfile('picked'), 'Library', 'Application Support', 'Google', 'Chrome');
+    const profileDir = fakeChromeProfile(path.join(chromeDir, 'Default'));
+    fs.writeFileSync(
+      path.join(profileDir, 'Bookmarks'),
+      JSON.stringify({
+        roots: {
+          bookmark_bar: { type: 'folder', children: [{ type: 'url', name: 'Picked', url: 'https://picked-folder.test/' }] },
+          other: { type: 'folder', children: [] },
+          synced: { type: 'folder', children: [] },
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(chromeDir, 'Local State'), JSON.stringify({ profile: { info_cache: { Default: { name: 'Person 1' } } } }));
+
+    // "Choose Folder…" → picker returns chromeDir → one profile, so straight to "Bookmarks + History".
+    await arrange(app, { source: null, responses: [0, 0], folder: chromeDir });
+    await ui.click('#import-browser');
+    await h.waitUntil(async () => (await app.evaluate(() => globalThis.__dialogs)).some((d) => /Import complete/.test(d.message || '')), {
+      message: 'import via picked folder completed',
+    });
+    const dialogs = await app.evaluate(() => globalThis.__dialogs);
+    const picker = dialogs.find((d) => d.picker);
+    assert.ok(picker, 'the folder picker opened');
+    assert.ok(picker.properties.includes('openDirectory'));
+    assert.match(dialogs.find((d) => /^Import from /.test(d.message || '')).message, /Google Chrome — Person 1/);
+    assert.match(dialogs[dialogs.length - 1].detail, /Added 1 bookmark and/);
+    assert.ok(readJson('bookmarks.json').bookmarks.some((b) => b.url === 'https://picked-folder.test/'));
   });
 });

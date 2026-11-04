@@ -6,7 +6,15 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { parseBookmarks, parseHistory, chromeTimeToIso, importFrom, listSources } = require('../../src/main/import-chrome');
+const {
+  parseBookmarks,
+  parseHistory,
+  chromeTimeToIso,
+  importFrom,
+  listSources,
+  scan,
+  sourcesFromFolder,
+} = require('../../src/main/import-chrome');
 const { Bookmarks, History } = require('../../src/main/store');
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `chrome2-${name}-`));
@@ -113,5 +121,109 @@ test('importFrom can import only bookmarks', () => {
 });
 
 test('listSources returns an array and never throws when nothing is installed', () => {
-  assert.ok(Array.isArray(listSources()));
+  assert.ok(Array.isArray(listSources({ home: tmp('empty-home') })));
+});
+
+// A minimal Chrome profile folder with one bookmark and one history entry.
+function fakeProfile(dir, url) {
+  fs.mkdirSync(dir, { recursive: true });
+  const folder = (children) => ({ type: 'folder', children });
+  fs.writeFileSync(
+    path.join(dir, 'Bookmarks'),
+    JSON.stringify({ roots: { bookmark_bar: folder([{ type: 'url', name: url, url }]), other: folder([]), synced: folder([]) } }),
+  );
+  writeHistory(dir, [{ url, title: url, date: new Date() }]);
+}
+const localState = (root, names) =>
+  fs.writeFileSync(
+    path.join(root, 'Local State'),
+    JSON.stringify({ profile: { info_cache: Object.fromEntries(Object.entries(names).map(([d, name]) => [d, { name }])) } }),
+  );
+const macRoot = (home, ...rest) => path.join(home, 'Library', 'Application Support', ...rest);
+
+test('scan finds Chrome profiles where macOS keeps them, named from Local State', () => {
+  const home = tmp('home-mac');
+  const root = macRoot(home, 'Google', 'Chrome');
+  fakeProfile(path.join(root, 'Default'), 'https://mac-default.test/');
+  fakeProfile(path.join(root, 'Profile 1'), 'https://mac-work.test/');
+  fs.mkdirSync(path.join(root, 'Crashpad')); // non-profile folders are ignored
+  fakeProfile(path.join(root, 'System Profile'), 'https://system.test/'); // so are Chrome's internal ones
+  localState(root, { Default: 'Person 1', 'Profile 1': 'Work' });
+
+  const { sources, checked } = scan({ home, platform: 'darwin' });
+  assert.deepEqual(sources.map((s) => `${s.browser}/${s.profile}`).sort(), ['Google Chrome/Person 1', 'Google Chrome/Work']);
+  assert.ok(sources.every((s) => s.bookmarkCount === 1 && s.hasHistory));
+  assert.equal(checked.find((c) => c.browser === 'Google Chrome').status, 'found');
+  assert.equal(checked.find((c) => c.browser === 'Microsoft Edge').status, 'missing');
+  assert.equal(listSources({ home, platform: 'darwin' }).length, 2);
+});
+
+test('scan finds Chrome under %LOCALAPPDATA% on Windows', () => {
+  const home = tmp('home-win');
+  const local = path.join(home, 'AppData', 'Local');
+  fakeProfile(path.join(local, 'Google', 'Chrome', 'User Data', 'Default'), 'https://win.test/');
+  const { sources } = scan({ home, platform: 'win32', env: { LOCALAPPDATA: local } });
+  assert.deepEqual(
+    sources.map((s) => s.browser),
+    ['Google Chrome'],
+  );
+});
+
+test('scan finds Chrome Beta and Arc on macOS and labels them correctly', () => {
+  const home = tmp('home-beta');
+  fakeProfile(macRoot(home, 'Google', 'Chrome Beta', 'Default'), 'https://beta.test/');
+  fakeProfile(macRoot(home, 'Arc', 'User Data', 'Default'), 'https://arc.test/');
+  const browsers = scan({ home, platform: 'darwin' }).sources.map((s) => s.browser).sort();
+  assert.deepEqual(browsers, ['Arc', 'Google Chrome Beta']);
+});
+
+test('an empty browser folder is reported as empty, not missing', () => {
+  const home = tmp('home-emptychrome');
+  fs.mkdirSync(path.join(macRoot(home, 'Google', 'Chrome'), 'Default'), { recursive: true });
+  const chrome = scan({ home, platform: 'darwin' }).checked.find((c) => c.browser === 'Google Chrome');
+  assert.equal(chrome.status, 'empty');
+});
+
+const canTestPermissions = process.platform !== 'win32' && process.getuid?.() !== 0;
+test(
+  'scan tells "blocked by the system" apart from "not installed"',
+  { skip: canTestPermissions ? false : 'needs POSIX permissions as a non-root user' },
+  () => {
+    const home = tmp('home-denied');
+    const root = macRoot(home, 'Google', 'Chrome');
+    fakeProfile(path.join(root, 'Default'), 'https://denied.test/');
+    fs.chmodSync(root, 0o000);
+    try {
+      const { sources, checked } = scan({ home, platform: 'darwin' });
+      assert.equal(sources.length, 0);
+      const chrome = checked.find((c) => c.browser === 'Google Chrome');
+      assert.equal(chrome.status, 'denied');
+      assert.match(chrome.code, /EACCES|EPERM/);
+      assert.equal(sourcesFromFolder(root).status, 'denied');
+    } finally {
+      fs.chmodSync(root, 0o755);
+    }
+  },
+);
+
+test('sourcesFromFolder accepts a profile, a browser folder, or the folder above it', () => {
+  const home = tmp('home-pick');
+  const google = macRoot(home, 'Google');
+  const root = path.join(google, 'Chrome');
+  fakeProfile(path.join(root, 'Default'), 'https://picked.test/');
+  localState(root, { Default: 'Person 1' });
+
+  for (const dir of [path.join(root, 'Default'), root, google]) {
+    const { status, sources } = sourcesFromFolder(dir);
+    assert.equal(status, 'found', dir);
+    assert.equal(sources.length, 1, dir);
+    assert.equal(sources[0].browser, 'Google Chrome', dir);
+    assert.equal(sources[0].profile, 'Person 1', dir);
+    assert.equal(sources[0].id, path.join(root, 'Default'), dir);
+  }
+
+  const elsewhere = tmp('picked-elsewhere');
+  fakeProfile(path.join(elsewhere, 'Default'), 'https://elsewhere.test/');
+  assert.equal(sourcesFromFolder(elsewhere).sources[0].browser, 'Chosen folder');
+  assert.deepEqual(sourcesFromFolder(tmp('nothing-here')), { status: 'empty', sources: [] });
 });

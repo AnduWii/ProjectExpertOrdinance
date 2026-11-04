@@ -83,6 +83,9 @@ jobs:
           node-version: 22.23.4
           cache: npm
       - run: npm ci
+      # Browser-import detection on the real OS: macOS and Windows keep other
+      # browsers' data in places the Linux test job can't exercise.
+      - run: node --test test/unit/import-chrome.test.js
       - run: npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

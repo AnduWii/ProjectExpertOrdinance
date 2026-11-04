@@ -1,5 +1,6 @@
 'use strict';
 
+const os = require('node:os');
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain, session, Menu, dialog } = require('electron');
 const { migrateLegacyProfile } = require('./profile');
@@ -15,7 +16,7 @@ const { ExtensionManager } = require('./extensions');
 const { ExtensionCompat } = require('./compat');
 const { PermissionManager } = require('./permissions');
 const { describePermissions, unsupportedPermissions } = require('./extension-support');
-const { listSources: listImportSources, importFrom } = require('./import-chrome');
+const { scan: scanImportSources, sourcesFromFolder, defaultDataDir, importFrom } = require('./import-chrome');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) {
@@ -192,29 +193,96 @@ function activateExtensionAction(c, extensionId, anchorRect) {
  * browser, using native dialogs. Imports data only — never logins or passwords.
  * Returns the import result (or null if cancelled); tests read it.
  */
+const IMPORT_SCOPE = 'This copies bookmarks and history only — never passwords, cookies or logins. To sign in, sign in inside Chrome2 once.';
+const FULL_DISK_HINT =
+  'If macOS still blocks it: System Settings → Privacy & Security → Full Disk Access → turn on Chrome2, then quit and reopen Chrome2.';
+const tildify = (p) => (p.startsWith(os.homedir()) ? `~${p.slice(os.homedir().length)}` : p);
+
+function describeCheck(c) {
+  const what = {
+    found: `${c.profiles} profile${c.profiles === 1 ? '' : 's'}`,
+    denied: `blocked by the system (${c.code})`,
+    empty: 'folder exists, but no profile has bookmarks or history',
+    missing: 'not found',
+  }[c.status];
+  return `• ${c.browser}: ${what}\n   ${tildify(c.root)}`;
+}
+
+/** Let the user point at a browser's data folder; returns its sources or null. */
+async function pickFolderSources(win, checked = []) {
+  const near = checked.find((c) => c.status !== 'missing');
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Choose your browser’s data folder',
+    message: 'Select the browser’s folder (for Chrome: Google ▸ Chrome) or a profile inside it (Default).',
+    buttonLabel: 'Import From Here',
+    defaultPath: near?.root || defaultDataDir(),
+    properties: ['openDirectory', 'showHiddenFiles'],
+  });
+  if (canceled || !filePaths?.length) return null;
+  const picked = filePaths[0];
+  const res = sourcesFromFolder(picked);
+  if (res.sources.length) return res.sources;
+  await dialog.showMessageBox(win, {
+    type: 'warning',
+    message: 'No bookmarks or history in that folder',
+    detail:
+      res.status === 'denied'
+        ? `Chrome2 isn’t allowed to read ${tildify(picked)} (${res.code}).\n\n${FULL_DISK_HINT}`
+        : `${tildify(picked)} has no Chrome-style Bookmarks or History file. Pick the browser’s folder (for Chrome: Google ▸ Chrome) or a profile inside it (Default).`,
+  });
+  return null;
+}
+
 async function runImportFlow(controller) {
   const win = controller.win;
-  const sources = ctx.importSourcesOverride || listImportSources();
+  const found = ctx.importSourcesOverride ? { sources: ctx.importSourcesOverride, checked: [] } : scanImportSources();
+  let { sources } = found;
+  let source = null;
+
   if (!sources.length) {
-    await dialog.showMessageBox(win, {
-      type: 'info',
-      message: 'No other browser found to import from',
-      detail: 'Chrome2 looks for Google Chrome, Microsoft Edge, Brave, Vivaldi or Chromium on this computer. Open one of those at least once, then try again.',
+    // Say exactly where we looked and why each place failed.
+    const isMac = process.platform === 'darwin';
+    const blocked = found.checked.filter((c) => c.status === 'denied');
+    const seen = found.checked.filter((c) => c.status !== 'missing');
+    const detail = [
+      blocked.length
+        ? `${blocked.map((c) => c.browser).join(', ')} is installed, but ${isMac ? 'macOS' : 'the system'} won’t let Chrome2 read its data.`
+        : 'Chrome2 looks for Google Chrome, Edge, Brave, Arc, Vivaldi and Chromium.',
+      ...(seen.length ? seen : found.checked.slice(0, 1)).map(describeCheck),
+      '',
+      `Click “Choose Folder…” to point Chrome2 at your browser’s data folder${isMac ? ' (it opens in ~/Library/Application Support).' : '.'}`,
+      blocked.length && isMac ? FULL_DISK_HINT : null,
+    ]
+      .filter((line) => line !== null)
+      .join('\n');
+    const r = await dialog.showMessageBox(win, {
+      type: blocked.length ? 'warning' : 'info',
+      message: blocked.length ? `Chrome2 can’t read ${blocked[0].browser}’s data` : 'No other browser found to import from',
+      detail,
+      buttons: ['Choose Folder…', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
     });
-    return null;
+    if (r.response !== 0) return null;
+    sources = await pickFolderSources(win, found.checked);
+    if (!sources) return null;
+    if (sources.length === 1) [source] = sources;
   }
 
-  const labels = sources.map((s) => `${s.browser} — ${s.profile}  (${s.bookmarkCount} bookmarks${s.hasHistory ? ', history' : ''})`);
-  const pick = await dialog.showMessageBox(win, {
-    type: 'question',
-    message: 'Import from another browser',
-    detail: 'Pick a profile. This copies bookmarks and history only — never passwords, cookies or logins. To sign in, sign in inside Chrome2 once.',
-    buttons: [...labels, 'Cancel'],
-    cancelId: labels.length,
-    defaultId: 0,
-  });
-  if (pick.response >= labels.length) return null;
-  const source = sources[pick.response];
+  while (!source) {
+    const labels = sources.map((s) => `${s.browser} — ${s.profile}  (${s.bookmarkCount} bookmarks${s.hasHistory ? ', history' : ''})`);
+    const pick = await dialog.showMessageBox(win, {
+      type: 'question',
+      message: 'Import from another browser',
+      detail: `Pick a profile. ${IMPORT_SCOPE}`,
+      buttons: [...labels, 'Choose Folder…', 'Cancel'],
+      cancelId: labels.length + 1,
+      defaultId: 0,
+    });
+    if (pick.response < labels.length) source = sources[pick.response];
+    else if (pick.response === labels.length) sources = (await pickFolderSources(win, found.checked)) || sources;
+    else return null;
+  }
 
   const what = await dialog.showMessageBox(win, {
     type: 'question',

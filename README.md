@@ -15,6 +15,7 @@ A minimal desktop web browser built on Electron 45.2.1 (Chromium 156 engine) wit
 | Robustness | Video/HTML fullscreen hides the toolbar and fills the window (Esc exits). A crashed tab shows a "This page crashed" page and Reload brings it back. |
 | Bookmarks | Star button (Ctrl/Cmd+D) and a Bookmarks panel. Stored in `bookmarks.json`. |
 | History | Every page visit, newest first, searchable, single delete or clear all. Stored in `history.json`. |
+| Import | Copies bookmarks and history from Google Chrome, Edge, Brave, Arc, Vivaldi or Chromium. See [Import from another browser](#import-from-another-browser). |
 | Extensions | **Add to Chrome** from the Chrome Web Store (with an install prompt and automatic updates), or **Load unpacked…** from a folder with `session.extensions.loadExtension`. Extensions are re-loaded on every start, with toolbar buttons, popups, side panels and content scripts. Permissions this browser can't honour are flagged in the Extensions panel. |
 | Agent extension support | `chrome.debugger` (CDP), `chrome.sidePanel`, `chrome.tabGroups`, `chrome.tabs.group/captureVisibleTab`, `chrome.identity.launchWebAuthFlow`, with Chrome's "… started debugging this tab" banner and its Cancel button. |
 | Site permissions | Camera, microphone, location, notifications and similar requests ask Allow/Block once per site. Electron would otherwise grant them all silently. |
@@ -89,6 +90,14 @@ Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-
 | Bookmark page / bookmarks panel | Ctrl+D / Ctrl+Shift+O | ⌘D / ⇧⌘O |
 | History panel | Ctrl+H | ⌘Y |
 | Page DevTools | Ctrl+Shift+I | ⌥⌘I |
+
+## Import from another browser
+
+Open the Bookmarks panel and click **Import from another browser…** (or use **Bookmarks → Import From Another Browser…** in the menu bar). Chrome2 looks for Google Chrome (including Beta, Dev and Canary), Microsoft Edge, Brave, Arc, Vivaldi and Chromium, lists their profiles, and copies the profile you pick. Anything Chrome2 already has is skipped, so it's safe to run again.
+
+* **What it copies:** bookmarks and up to 5,000 recent history entries. It never copies passwords, cookies or logins. Those are encrypted with a key in the OS keychain, and pulling live sessions out of another browser is what cookie-stealing malware does. Sign in inside Chrome2 instead.
+* **If it can't find or read your browser,** the dialog lists every folder it checked and what happened (not found, blocked by the system, or no profiles). Click **Choose Folder…** and pick the browser's data folder. For Chrome on macOS that's `~/Library/Application Support/Google/Chrome`, and the picker opens nearby. You can pick `Chrome`, the `Default` profile inside it, or `Google` above it.
+* **macOS privacy controls** can stop one app from reading another app's data. If the picked folder is also "blocked by the system", go to System Settings → Privacy & Security → Full Disk Access, turn on Chrome2, then quit and reopen it.
 
 ## Extensions
 
@@ -208,6 +217,7 @@ On Linux the e2e suite needs a display (`xvfb-run -a npm run test:e2e` on a head
 * **Extensions:** see the unsupported API list above. Web Store downloads are checked against the store's HTTPS connection and the extension ID, but the CRX signature itself is not verified. They use Node's `fetch`, which ignores system proxy settings, so installs fail behind a corporate proxy. Extensions are not available in private/in-memory sessions (an Electron restriction), so there is no incognito mode. Per electron-chrome-extensions, MV2 background pages are always persistent. If the app's own `session.webRequest` is used, `chrome.webRequest` listeners stop firing.
 * **Address bar:** no suggestions or autocomplete. Host detection is heuristic: `node.js` is treated as a domain because there is no public-suffix list.
 * **Browser features not built:** downloads manager UI (Electron shows a plain save dialog), password manager, autofill, sync, reader mode, multiple profiles, session restore, tab pinning, tab drag between windows, and a visible collapse/title UI for tab groups (only the colour shows).
+* **Import:** Chromium-based browsers only (no Safari or Firefox). Bookmark folders are flattened into one list, and passwords, cookies and logins are never copied.
 * **Site permissions** are remembered only until restart, with no settings page to review them.
 * **Security model:** tabs run sandboxed with context isolation and no Node.js. The toolbar UI talks to the main process over a fixed IPC allow-list. Extension shims check the calling extension's manifest permissions in the main process. Electron's Chromium is patched on Electron's release schedule, not Chrome's, so keep `electron` current.
 * **Sites that sniff the browser:** the user agent drops the `Electron/` token so sites see a normal Chrome UA, but `navigator.userAgentData.brands` and the `Sec-CH-UA` headers still differ from Google Chrome. That's why the Chrome Web Store keeps showing "Switch to Chrome" even though installing works. Changing those headers would need `session.webRequest`, which would stop other extensions' `chrome.webRequest` listeners, so it isn't done.
