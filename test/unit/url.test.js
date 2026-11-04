@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeInput } = require('../../src/main/url');
 
-const DDG = 'https://duckduckgo.com/?q=';
+const GOOGLE = 'https://www.google.com/search?q=';
 
 const cases = [
   ['example.com', 'https://example.com/'],
@@ -18,14 +18,14 @@ const cases = [
   ['sub.domain.co.uk', 'https://sub.domain.co.uk/'],
   ['file:///tmp/a.html', 'file:///tmp/a.html'],
   ['about:blank', 'about:blank'],
-  ['hello world', DDG + 'hello%20world'],
-  ['electron', DDG + 'electron'],
-  ['what is 2.5', DDG + 'what%20is%202.5'],
-  ['c++ & rust?', DDG + 'c%2B%2B%20%26%20rust%3F'],
-  ['999.1.1.1', DDG + '999.1.1.1'],
-  ['javascript://alert(1)', DDG + 'javascript%3A%2F%2Falert(1)'],
-  ['javascript:alert(1)', DDG + 'javascript%3Aalert(1)'],
-  ['-bad-.com', DDG + '-bad-.com'],
+  ['hello world', GOOGLE + 'hello%20world'],
+  ['electron', GOOGLE + 'electron'],
+  ['what is 2.5', GOOGLE + 'what%20is%202.5'],
+  ['c++ & rust?', GOOGLE + 'c%2B%2B%20%26%20rust%3F'],
+  ['999.1.1.1', GOOGLE + '999.1.1.1'],
+  ['javascript://alert(1)', GOOGLE + 'javascript%3A%2F%2Falert(1)'],
+  ['javascript:alert(1)', GOOGLE + 'javascript%3Aalert(1)'],
+  ['-bad-.com', GOOGLE + '-bad-.com'],
 ];
 
 for (const [input, expected] of cases) {

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const h = require('./harness');
 
-test('[Address bar & navigation] URLs, DuckDuckGo search, back, forward, reload, home', async (t) => {
+test('[Address bar & navigation] URLs, Google search, back, forward, reload, home', async (t) => {
   const server = await h.startServer();
   const { app, ui } = await h.launch({ userData: h.tempProfile('nav'), home: `${server.origin}/` });
   t.after(async () => {
@@ -33,22 +33,22 @@ test('[Address bar & navigation] URLs, DuckDuckGo search, back, forward, reload,
     await h.waitUntil(async () => (await ui.inputValue('#address')) === `${server.origin}/page1`, { message: 'address shows URL' });
   });
 
-  await t.test('typing words searches DuckDuckGo', async () => {
-    // The CI network cannot reach duckduckgo.com, so capture the request the
+  await t.test('typing words searches Google', async () => {
+    // The test network cannot reach google.com, so capture the request the
     // browser makes and answer it locally.
     await app.evaluate(({ session }, origin) => {
       const ses = session.fromPartition('persist:ordinance');
       globalThis.__searchRequests = [];
-      ses.webRequest.onBeforeRequest({ urls: ['https://duckduckgo.com/*'] }, (details, callback) => {
+      ses.webRequest.onBeforeRequest({ urls: ['https://www.google.com/*'] }, (details, callback) => {
         globalThis.__searchRequests.push(details.url);
         const q = new URL(details.url).searchParams.get('q');
-        callback({ redirectURL: `${origin}/named/${encodeURIComponent(`DDG stub: ${q}`)}` });
+        callback({ redirectURL: `${origin}/named/${encodeURIComponent(`Search stub: ${q}`)}` });
       });
     }, server.origin);
     await go('hello world');
-    await h.waitUntil(async () => (await active()).title === 'DDG stub: hello world', { message: 'search stub page' });
+    await h.waitUntil(async () => (await active()).title === 'Search stub: hello world', { message: 'search stub page' });
     const requests = await app.evaluate(() => globalThis.__searchRequests);
-    assert.equal(requests[0], 'https://duckduckgo.com/?q=hello%20world');
+    assert.equal(requests[0], 'https://www.google.com/search?q=hello%20world');
     await app.evaluate(({ session }) => session.fromPartition('persist:ordinance').webRequest.onBeforeRequest(null));
   });
 

@@ -165,19 +165,37 @@ class History {
 }
 
 const DEFAULT_SETTINGS = {
-  version: 1,
-  homePage: 'https://duckduckgo.com/',
-  searchUrl: 'https://duckduckgo.com/?q=',
+  version: 2,
+  homePage: 'https://www.google.com/',
+  searchUrl: 'https://www.google.com/search?q=',
   // Absolute paths of unpacked extensions to load on every start.
   extensions: [],
   // Folders in <userData>/extensions that the user removed.
   ignoredExtensions: [],
 };
 
+const LEGACY_DEFAULTS = {
+  homePage: 'https://duckduckgo.com/',
+  searchUrl: 'https://duckduckgo.com/?q=',
+};
+
 class Settings {
   constructor(dir) {
     this.file = new JsonFile(path.join(dir, 'settings.json'), DEFAULT_SETTINGS);
     this.data = { ...DEFAULT_SETTINGS, ...this.file.read() };
+    // Profiles from before Google became the default saved DuckDuckGo; upgrade
+    // them (nothing in the UI let anyone choose DuckDuckGo deliberately).
+    let migrated = false;
+    for (const [key, oldDefault] of Object.entries(LEGACY_DEFAULTS)) {
+      if (this.data[key] === oldDefault) {
+        this.data[key] = DEFAULT_SETTINGS[key];
+        migrated = true;
+      }
+    }
+    if (migrated || this.data.version < DEFAULT_SETTINGS.version) {
+      this.data.version = DEFAULT_SETTINGS.version;
+      if (migrated) this.file.write(this.data);
+    }
   }
 
   get(key) {

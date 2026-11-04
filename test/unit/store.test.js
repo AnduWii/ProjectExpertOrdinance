@@ -55,9 +55,26 @@ test('corrupt JSON is moved aside, not fatal', () => {
   assert.ok(fs.readdirSync(dir).some((f) => f.startsWith('bookmarks.json.corrupt-')));
 });
 
-test('settings default to DuckDuckGo home/search', () => {
+test('settings default to Google home/search', () => {
   const s = new Settings(tmpDir());
-  assert.equal(s.get('homePage'), 'https://duckduckgo.com/');
-  assert.equal(s.get('searchUrl'), 'https://duckduckgo.com/?q=');
+  assert.equal(s.get('homePage'), 'https://www.google.com/');
+  assert.equal(s.get('searchUrl'), 'https://www.google.com/search?q=');
   assert.deepEqual(s.get('extensions'), []);
+});
+
+test('old DuckDuckGo defaults are upgraded to Google, custom values kept', () => {
+  const dir = tmpDir();
+  fs.writeFileSync(
+    path.join(dir, 'settings.json'),
+    JSON.stringify({ version: 1, homePage: 'https://duckduckgo.com/', searchUrl: 'https://duckduckgo.com/?q=', extensions: ['/x'] }),
+  );
+  const s = new Settings(dir);
+  assert.equal(s.get('homePage'), 'https://www.google.com/');
+  assert.equal(s.get('searchUrl'), 'https://www.google.com/search?q=');
+  assert.deepEqual(s.get('extensions'), ['/x']);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).homePage, 'https://www.google.com/');
+
+  const custom = tmpDir();
+  fs.writeFileSync(path.join(custom, 'settings.json'), JSON.stringify({ homePage: 'https://example.org/' }));
+  assert.equal(new Settings(custom).get('homePage'), 'https://example.org/');
 });

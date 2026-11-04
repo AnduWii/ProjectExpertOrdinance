@@ -2,10 +2,10 @@
 
 /**
  * Turns whatever the user typed into the address bar into a URL to load.
- * Anything that does not look like a URL becomes a DuckDuckGo search.
+ * Anything that does not look like a URL becomes a Google search.
  */
 
-const DEFAULT_SEARCH_URL = 'https://duckduckgo.com/?q=';
+const DEFAULT_SEARCH_URL = 'https://www.google.com/search?q=';
 
 // Schemes the address bar may navigate to directly. Notably absent:
 // `javascript:` (never run script from the omnibox) and `data:`.
