@@ -101,6 +101,26 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "$app"
             codesign -dv "$app" 2>&1 | grep -E '^(Executable|Identifier|Format|Signature)='
           done
+      # The Linux e2e suite never runs the Mac build. Open it the way a
+      # double-click does (LaunchServices) and require the window to appear
+      # and the app to keep running, so "won't open" fails CI.
+      - name: Open the macOS app (smoke test)
+        if: runner.os == 'macOS'
+        run: |
+          app="$PWD/dist/mac-arm64/Chrome2.app"
+          [ "$(uname -m)" = arm64 ] || app="$PWD/dist/mac/Chrome2.app"
+          log="$HOME/Library/Application Support/Chrome2/logs/main.log"
+          open "$app"
+          for i in $(seq 1 45); do
+            grep -q 'window shown' "$log" 2>/dev/null && break
+            sleep 1
+          done
+          sleep 3
+          echo "--- main.log"; cat "$log" 2>/dev/null || echo "(no log written)"
+          grep -q 'window shown' "$log" 2>/dev/null || { echo "::error::Chrome2's window never appeared"; exit 1; }
+          pgrep -x Chrome2 >/dev/null || { echo "::error::Chrome2 quit after opening"; exit 1; }
+          echo "Chrome2 opened, showed its window and is still running"
+          osascript -e 'quit app "Chrome2"' || pkill -x Chrome2 || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chrome2-${{ matrix.name }}

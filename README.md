@@ -98,6 +98,19 @@ Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-
    ```
 
    Use a build from a `main` run, or from a pull-request run made after the signing fix in CI; before that fix, pull-request builds came out unsigned. If the Mac is managed by a school or employer, its administrator may block unsigned apps entirely; that has to be allowed by them. Windows' "Windows protected your PC" is the same thing: click **More info → Run anyway**. See *Code signing* under [Build installers](#build-installers).
+5. **It bounces in the Dock or nothing happens, with no message.** First, don't edit `Info.plist` or anything else inside `Chrome2.app`. The signature covers those files, and after any change macOS kills the app at launch without saying why. Delete that copy and install a fresh one from the `.dmg`, or re-sign the edited copy:
+
+   ```bash
+   codesign --force --deep --sign - "/Applications/Chrome2.app"
+   ```
+
+   Then start it from Terminal; whatever stops it is printed there:
+
+   ```bash
+   /Applications/Chrome2.app/Contents/MacOS/Chrome2
+   ```
+
+   `Killed: 9` means the signature is broken (re-sign as above). Also check `~/Library/Application Support/Chrome2/logs/main.log`: every start writes a `starting` line and a `window shown` line, and a copy that finds Chrome2 already running says so.
 
 Extensions get 8 seconds to load before the first window opens anyway (`ORDINANCE_EXTENSION_WAIT_MS` changes this); after that they finish loading in the background.
 
