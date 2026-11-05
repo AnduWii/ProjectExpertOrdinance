@@ -548,11 +548,15 @@ const pendingUrls = []; // URLs from a second launch that arrived mid-start-up
  */
 function loadExtensions() {
   // Both register their preloads synchronously, before the first page loads.
-  // ORDINANCE_EXTENSION_DELAY_MS lets the e2e suite make loading take a known,
-  // long time so the "window opens first" guarantee can be checked without
-  // racing a short timer; it is never set in normal use.
-  const delay = Number(process.env.ORDINANCE_EXTENSION_DELAY_MS) || 0;
-  const start = delay ? new Promise((r) => setTimeout(r, delay)) : Promise.resolve();
+  // Test-only: ORDINANCE_EXTENSION_HOLD=1 holds loading until the e2e suite
+  // calls globalThis.__releaseExtensions(), so "the window opens first" is
+  // checked without depending on how fast the machine is.
+  const hold = process.env.ORDINANCE_TEST === '1' && process.env.ORDINANCE_EXTENSION_HOLD === '1';
+  const start = hold
+    ? new Promise((r) => {
+        globalThis.__releaseExtensions = r;
+      })
+    : Promise.resolve();
   ctx.extensionsLoaded = false;
   const work = start
     .then(() => Promise.allSettled([setupWebStore(), ctx.extensions.loadSaved()]))
@@ -570,6 +574,9 @@ function loadExtensions() {
 
 async function startBrowser() {
   const dir = app.getPath('userData');
+  log.write(
+    `[startup] ${app.getName()} ${app.getVersion()} starting (pid ${process.pid}, Electron ${process.versions.electron}, ${process.platform} ${process.arch})`,
+  );
   // The marker stays until a window is on screen (see startup.js).
   const lastStartFailed = startupGuard.begin();
   const safe =
@@ -609,6 +616,7 @@ async function startBrowser() {
   started = true;
   c.win.once('show', () => {
     startupGuard.succeeded();
+    log.write('[startup] window shown');
     if (safe) showSafeModeNotice(c, safe);
   });
 }
@@ -639,6 +647,7 @@ function failedToStart(err) {
 
 if (!app.requestSingleInstanceLock()) {
   // Another Chrome2 is running: it opens a window (or our URLs) for us.
+  log.write(`[startup] another ${app.getName()} is already running; asked it to show a window (pid ${process.pid} exits)`);
   app.quit();
 } else {
   app.on('second-instance', (_e, argv) => {
