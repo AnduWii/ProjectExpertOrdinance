@@ -70,6 +70,7 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
   });
   t.after(async () => {
     report.console = (await app.evaluate(() => globalThis.__consoleLog).catch(() => [])) || [];
+    report.steps.dialogsSeen = ((await app.evaluate(() => globalThis.__installPrompts).catch(() => [])) || []).map((p) => p.message);
     report.compatCalls = (await app.evaluate(() => globalThis.__compatCalls).catch(() => [])) || [];
     save();
     console.log('CLAUDE REPORT SUMMARY', JSON.stringify({ steps: report.steps, apiUsage: report.apiUsage, unsupportedUsed: report.unsupportedUsed, extensionErrors: report.extensionErrors.slice(0, 10), webStoreLog: report.webStoreLog.filter((l) => !/:updater/.test(l)).slice(-40), consoleErrors: report.console.filter((c) => c.level >= 2).slice(0, 25), compatErrors: report.compatCalls.filter((c) => c.error).slice(0, 25) }, null, 2));
@@ -136,23 +137,46 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
       dialog.showMessageBox = async (...args) => {
         const opts = args.length > 1 ? args[1] : args[0];
         globalThis.__installPrompts.push({ message: opts.message, detail: opts.detail });
-        return { response: 0 };
+        // Accept only the install prompt. Any other dialog (e.g. "Page
+        // Unresponsive" on a slow runner) gets its safe/cancel answer, so the
+        // stub never picks a destructive first button by accident.
+        const isInstall = /^Add ".*"\?$/.test(opts.message || '');
+        return { response: isInstall ? 0 : (opts.cancelId ?? 1) };
       };
     });
-    const clicked = await app.evaluate(
-      ({ webContents }, id) =>
-        webContents.fromId(id).executeJavaScript(
-          `(() => {
-            const el = [...document.querySelectorAll('button, span, div')].find((n) => n.children.length === 0 && /^\\s*Add to Chrome\\s*$/.test(n.innerText || ''));
-            if (!el) return false;
-            (el.closest('button') || el).click();
-            return true;
-          })()`,
-          true,
-        ),
-      tabId,
-    );
+    const clickAdd = () =>
+      app.evaluate(
+        ({ webContents }, id) =>
+          webContents.fromId(id).executeJavaScript(
+            `(() => {
+              const el = [...document.querySelectorAll('button, span, div')].find((n) => n.children.length === 0 && /^\\s*Add to Chrome\\s*$/.test(n.innerText || ''));
+              if (!el) return false;
+              (el.closest('button') || el).click();
+              return true;
+            })()`,
+            true,
+          ),
+        tabId,
+      );
+    // The store renders "Add to Chrome" before its script wires the click up.
+    // On a slow page load a single early click is silently ignored (no
+    // beginInstall reaches the browser), so retry until the store responds.
+    const responded = () =>
+      app.evaluate(
+        (_e, id) => (globalThis.__installPrompts || []).some((p) => /^Add "/.test(p.message || '')) || !!globalThis.__ordinance.ctx.extensions.get(id),
+        CLAUDE_ID,
+      );
+    let clicked = false;
+    let clicks = 0;
+    for (const deadline = Date.now() + 60000; Date.now() < deadline && !(await responded()); ) {
+      if (await clickAdd()) {
+        clicked = true;
+        clicks += 1;
+      } else if (!clicked) break; // no such button at all: use the fallback below
+      await h.sleep(3000);
+    }
     report.steps.clickedAddButton = clicked;
+    report.steps.addButtonClicks = clicks;
     if (!clicked) {
       // Store markup changed: install the same way the button would.
       report.steps.installFallback = true;
@@ -163,7 +187,10 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
       interval: 1000,
       message: 'Claude installed',
     });
-    report.steps.installPrompt = (await app.evaluate(() => globalThis.__installPrompts))[0] || null;
+    const prompts = (await app.evaluate(() => globalThis.__installPrompts)) || [];
+    report.steps.installPrompt = prompts.find((p) => /^Add "/.test(p.message || '')) || null;
+    const others = prompts.filter((p) => !/^Add "/.test(p.message || ''));
+    if (others.length) report.steps.otherDialogs = others.map((p) => p.message);
 
     const info = await app.evaluate((_e, id) => {
       const ext = globalThis.__ordinance.ctx.extensions.get(id);
