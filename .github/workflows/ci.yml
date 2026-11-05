@@ -87,6 +87,20 @@ jobs:
       # browsers' data in places the Linux test job can't exercise.
       - run: node --test test/unit/import-chrome.test.js
       - run: npm run ${{ matrix.script }}
+        env:
+          # electron-builder skips ALL signing on pull-request builds, even the
+          # ad-hoc identity "-" that dist:mac asks for. An unsigned app is what
+          # macOS reports as "damaged and can't be opened". Ad-hoc signing uses
+          # no certificate or secret, so it is safe to force on pull requests.
+          CSC_FOR_PULL_REQUEST: ${{ matrix.name == 'macOS' }}
+      # Fail here instead of shipping an app macOS will call "damaged".
+      - name: Verify macOS code signature
+        if: runner.os == 'macOS'
+        run: |
+          for app in dist/mac/Chrome2.app dist/mac-arm64/Chrome2.app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv "$app" 2>&1 | grep -E '^(Executable|Identifier|Format|Signature)='
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chrome2-${{ matrix.name }}

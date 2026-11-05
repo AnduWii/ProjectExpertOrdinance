@@ -91,7 +91,13 @@ Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-
 
    On Windows, run `Chrome2.exe --safe-mode` from its install folder. From source: `npm start -- --safe-mode`.
 3. **Read the log.** `logs/main.log` in the data folder (above) records why a start failed. If start-up itself fails, Chrome2 shows the error and exits, instead of sitting invisible in the background.
-4. **macOS says it "can't be opened" or "is damaged", or Windows shows "Windows protected your PC":** that is the operating system refusing an unsigned download, not a crash. See *Code signing* under [Build installers](#build-installers).
+4. **macOS says Chrome2 "is damaged and can't be opened":** the app isn't broken. macOS refuses downloaded apps that aren't signed with an Apple Developer ID and notarised, and Chrome2's builds are only ad-hoc signed. For this message there is no **Open Anyway** button. Move Chrome2 to Applications, then clear the download flag once:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Chrome2.app"
+   ```
+
+   Use a build from a `main` run, or from a pull-request run made after the signing fix in CI; before that fix, pull-request builds came out unsigned. If the Mac is managed by a school or employer, its administrator may block unsigned apps entirely; that has to be allowed by them. Windows' "Windows protected your PC" is the same thing: click **More info → Run anyway**. See *Code signing* under [Build installers](#build-installers).
 
 Extensions get 8 seconds to load before the first window opens anyway (`ORDINANCE_EXTENSION_WAIT_MS` changes this); after that they finish loading in the background.
 
