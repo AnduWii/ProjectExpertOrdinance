@@ -53,7 +53,7 @@ function scanApiUsage(dir) {
 }
 
 test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE && 'set ORDINANCE_ONLINE=1 (needs internet)' }, async (t) => {
-  const report = { startedAt: new Date().toISOString(), steps: {}, console: [], extensionErrors: [], compatCalls: [] };
+  const report = { startedAt: new Date().toISOString(), steps: {}, console: [], extensionErrors: [], compatCalls: [], webStoreLog: [] };
   const save = () => {
     fs.mkdirSync(h.ARTIFACTS, { recursive: true });
     fs.writeFileSync(path.join(h.ARTIFACTS, 'claude-report.json'), JSON.stringify(report, null, 2));
@@ -62,12 +62,17 @@ test('[Online] Claude in Chrome from the live Chrome Web Store', { skip: !ONLINE
   app.process().stderr.on('data', (d) => {
     const s = String(d);
     if (/Extension Error|Uncaught|is not yet implemented|cannot add chrome/i.test(s)) report.extensionErrors.push(s.slice(0, 2000));
+    // With DEBUG=electron-chrome-web-store:* (set in CI) the store library logs
+    // each install step and its result code, e.g. why "Add to Chrome" stopped.
+    for (const line of s.split('\n')) {
+      if (/electron-chrome-web-store:/.test(line) && report.webStoreLog.length < 300) report.webStoreLog.push(line.slice(0, 400));
+    }
   });
   t.after(async () => {
     report.console = (await app.evaluate(() => globalThis.__consoleLog).catch(() => [])) || [];
     report.compatCalls = (await app.evaluate(() => globalThis.__compatCalls).catch(() => [])) || [];
     save();
-    console.log('CLAUDE REPORT SUMMARY', JSON.stringify({ steps: report.steps, apiUsage: report.apiUsage, unsupportedUsed: report.unsupportedUsed, extensionErrors: report.extensionErrors.slice(0, 10), consoleErrors: report.console.filter((c) => c.level >= 2).slice(0, 25), compatErrors: report.compatCalls.filter((c) => c.error).slice(0, 25) }, null, 2));
+    console.log('CLAUDE REPORT SUMMARY', JSON.stringify({ steps: report.steps, apiUsage: report.apiUsage, unsupportedUsed: report.unsupportedUsed, extensionErrors: report.extensionErrors.slice(0, 10), webStoreLog: report.webStoreLog.filter((l) => !/:updater/.test(l)).slice(-40), consoleErrors: report.console.filter((c) => c.level >= 2).slice(0, 25), compatErrors: report.compatCalls.filter((c) => c.error).slice(0, 25) }, null, 2));
     await app.close().catch(() => {});
   });
 
