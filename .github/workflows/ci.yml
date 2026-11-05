@@ -54,6 +54,8 @@ jobs:
       - run: xvfb-run -a -s "-screen 0 1440x900x24" node --test --test-reporter=spec test/e2e/09-claude-online.test.js
         env:
           ORDINANCE_ONLINE: '1'
+          # Log each Web Store install step and its result code in the report.
+          DEBUG: 'electron-chrome-web-store:*'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
