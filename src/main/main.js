@@ -14,6 +14,7 @@ const { BrowserWindowController } = require('./window');
 const { Bookmarks, History, Settings } = require('./store');
 const { ExtensionManager } = require('./extensions');
 const { ExtensionCompat } = require('./compat');
+const { applyCrxFixes, invalidateWindowDetails } = require('./compat/crx-fixes');
 const { PermissionManager } = require('./permissions');
 const { describePermissions, unsupportedPermissions } = require('./extension-support');
 const { scan: scanImportSources, sourcesFromFolder, defaultDataDir, importFrom } = require('./import-chrome');
@@ -354,6 +355,8 @@ function createExtensionSupport() {
     },
     removeTab(wc, win) {
       (controllerForWindow(win) || controllerForTab(wc.id))?.closeTab(wc.id);
+      // A window's cached details still list this tab; rebuild them on demand.
+      invalidateWindowDetails(ctx.crx);
     },
     async createWindow(details) {
       const urls = [].concat(details.url || []);
@@ -364,8 +367,14 @@ function createExtensionSupport() {
     },
     assignTabDetails(details, wc) {
       ctx.compat?.assignTabDetails(details, wc);
+      // This tab's details are being (re)built, so any window details cached
+      // before it existed are stale and would report `tabs: []`. See
+      // compat/crx-fixes.js.
+      invalidateWindowDetails(ctx.crx);
     },
   });
+
+  applyCrxFixes(ctx.crx);
 
   ctx.webStoreDir = path.join(app.getPath('userData'), 'WebStoreExtensions');
   ctx.extensions = new ExtensionManager({

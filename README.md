@@ -169,6 +169,9 @@ Electron's `chrome.tabs` lacks `create`, `remove`, `group`, `ungroup` and `captu
 
 * `electron-chrome-extensions`: `contextMenus`, `cookies`, `notifications`, `webNavigation`, `windows`, the rest of `chrome.tabs`, `action` popups/onClicked, and `runtime.connectNative`
 * Its own shims: `debugger`, `sidePanel`, `tabGroups`, `identity` (`launchWebAuthFlow`, `getRedirectURL`), `tabs.group/ungroup/captureVisibleTab`
+* Corrections to electron-chrome-extensions 4.10.0, applied from the outside in [`src/main/compat/crx-fixes.js`](src/main/compat/crx-fixes.js) — nothing under `node_modules` is patched:
+  * `chrome.windows.create`, `get` and `getAll` reported `tabs: []`. The library caches a window's details when the window is first registered, which happens before its first tab's details exist, and never refreshes them. An extension doing `(await chrome.windows.create({url})).tabs[0].id` got **"Cannot read properties of undefined (reading 'id')"**. The cache is now dropped whenever tab details are rebuilt or a tab closes.
+  * `chrome.tabs.query` ignored `lastFocusedWindow` and `currentWindow`, so `{active: true, lastFocusedWindow: true}` returned the active tab of *every* window instead of one. Those flags are now translated to the `windowId` sentinel the library already honours.
 
 **Still unsupported here:** `accessibilityFeatures`, `bookmarks`, `browsingData`, `contentSettings`, `declarativeContent`, `desktopCapture`, `fontSettings`, `gcm`, `history`, `instanceID`, `omnibox`, `pageCapture`, `processes`, `readingList`, `search`, `sessions`, `tabCapture`, `tts`, `ttsEngine`, `userScripts`, `webAuthenticationProxy`.
 `downloads`, `privacy`, `topSites` and `commands` exist only as no-op stubs from electron-chrome-extensions, so extension keyboard shortcuts never fire. `system.display` always errors.
@@ -271,6 +274,7 @@ src/main/store.js           bookmarks/history/settings JSON files
 src/main/extensions.js      load/remove/persist extensions (unpacked and Web Store)
 src/main/extension-support.js  measured API support table
 src/main/compat/index.js    debugger, sidePanel, tabGroups, identity (main side)
+src/main/compat/crx-fixes.js   fixes for chrome.windows details and window-scoped tabs.query
 src/main/permissions.js     site permission prompts
 src/preload/ui-preload.js   toolbar UI bridge
 src/preload/compat-preload.js  extension API shims (extension contexts only)

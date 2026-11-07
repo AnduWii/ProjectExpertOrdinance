@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Window Probe",
+  "version": "1.0.0",
+  "description": "Test fixture: exercises chrome.windows.create/getAll, window-scoped tabs.query and tab groups the way agent extensions do.",
+  "permissions": ["tabs", "tabGroups", "sidePanel"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Window Probe" },
+  "side_panel": { "default_path": "sidepanel.html" }
+}
