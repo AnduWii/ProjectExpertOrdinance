@@ -18,6 +18,7 @@ const { PermissionManager } = require('./permissions');
 const { describePermissions, unsupportedPermissions } = require('./extension-support');
 const { scan: scanImportSources, sourcesFromFolder, defaultDataDir, importFrom } = require('./import-chrome');
 const { installLog, withTimeout, StartupGuard } = require('./startup');
+const { installWindowDetailsFix } = require('./window-details');
 
 // Tests (and power users) can point the profile somewhere else.
 if (process.env.ORDINANCE_USER_DATA) {
@@ -363,9 +364,19 @@ function createExtensionSupport() {
       if (!win.isDestroyed()) win.close();
     },
     assignTabDetails(details, wc) {
+      // The library leaves index at -1; Chrome reports the tab's position.
+      const c = controllerForTab(wc.id);
+      if (c) details.index = c.order.indexOf(wc.id);
       ctx.compat?.assignTabDetails(details, wc);
     },
   });
+  // chrome.windows.create/get/getAll returned windows with `tabs: []`, which
+  // broke Claude in Chrome's browser sessions. See window-details.js.
+  const fixed = installWindowDetailsFix(ctx.crx.api?.windows, ctx.crx.api?.tabs, (win) => {
+    const c = controllerForWindow(win);
+    return c ? c.order.map((id) => c.tabs.get(id)?.wc).filter(Boolean) : null;
+  });
+  if (!fixed) console.warn('[extensions] could not install the chrome.windows tabs fix; window.tabs may be empty');
 
   ctx.webStoreDir = path.join(app.getPath('userData'), 'WebStoreExtensions');
   ctx.extensions = new ExtensionManager({
