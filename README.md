@@ -168,7 +168,7 @@ Electron's `chrome.tabs` lacks `create`, `remove`, `group`, `ungroup` and `captu
 **What this browser adds back:**
 
 * `electron-chrome-extensions`: `contextMenus`, `cookies`, `notifications`, `webNavigation`, `windows`, the rest of `chrome.tabs`, `action` popups/onClicked, and `runtime.connectNative`
-* Its own shims: `debugger`, `sidePanel`, `tabGroups`, `identity` (`launchWebAuthFlow`, `getRedirectURL`), `tabs.group/ungroup/captureVisibleTab`
+* Its own shims: `debugger`, `sidePanel`, `tabGroups`, `identity` (`launchWebAuthFlow`, `getRedirectURL`), `tabs.group/ungroup/captureVisibleTab`, and correct `tabs`/`index` lists on `chrome.windows` objects
 
 **Still unsupported here:** `accessibilityFeatures`, `bookmarks`, `browsingData`, `contentSettings`, `declarativeContent`, `desktopCapture`, `fontSettings`, `gcm`, `history`, `instanceID`, `omnibox`, `pageCapture`, `processes`, `readingList`, `search`, `sessions`, `tabCapture`, `tts`, `ttsEngine`, `userScripts`, `webAuthenticationProxy`.
 `downloads`, `privacy`, `topSites` and `commands` exist only as no-op stubs from electron-chrome-extensions, so extension keyboard shortcuts never fire. `system.display` always errors.
@@ -204,6 +204,22 @@ Known gaps that may matter for it:
 * **Claude Code / Claude Desktop integration** uses native messaging. electron-chrome-extensions looks for host manifests in Chrome's locations (`NativeMessagingHosts` folders on macOS/Linux, the HKCU/HKLM `Software\Google\Chrome\NativeMessagingHosts` registry keys on Windows) and in `<user data>/NativeMessagingHosts`. Store installs keep Claude's Chrome ID, so hosts that allow it should answer. Untested.
 * Claude's download features (`chrome.downloads`) and keyboard shortcuts (`chrome.commands`) won't work.
 * Per-tab side panels: the panel is per window.
+
+**Fixed: "Failed to query tabs: Cannot read properties of undefined (reading 'id')".** Claude's browser session (`tabs_context_mcp` with `createIfEmpty`) failed with this error. The cause was `chrome.windows.create`, `get` and `getAll`, which returned every window with `tabs: []`. That came from electron-chrome-extensions 4.10.0, the latest release, so code expecting Chrome's behaviour broke on `win.tabs[0].id`. `src/main/window-details.js` now lists each window's tabs in tab-strip order with their real `index`, like Chrome. Tab groups were never affected.
+
+### Check the window and tab-group APIs yourself
+
+`test/fixtures/extensions/window-probe` is a small test extension. Its service worker calls `windows.getAll`, `windows.create({url:'about:blank'})`, `tabs.query`, `tabs.group`, `tabGroups.update/query/get` and `windows.get`, the way agent extensions do, and shows each result. `test/e2e/12-windows-api.test.js` runs it on every CI build.
+
+**In Chrome2:**
+1. Click the **grid icon**, then **Load unpacked…**, and pick the `window-probe` folder.
+2. Open the Extensions panel and copy the **Window Probe** ID, the 32 letters after "Unpacked ·".
+3. Type `chrome-extension://<that ID>/probe.html` in the address bar and press Enter.
+4. A second window opens and closes. The page then lists every call with its result.
+
+**In Google Chrome, to compare:** open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, pick the same folder, then open `chrome-extension://<its ID>/probe.html`.
+
+What a working browser shows: `windows.create(...)` has `"tabCount": 1` and a numeric `firstTabId`, and the next line, `createdWindow.tabs[0].id`, is that same number. `tabs.group` returns a group ID, and `tabGroups.query` lists the group. If `createdWindow.tabs[0].id` shows `Cannot read properties of undefined (reading 'id')`, that build has the old bug.
 
 Prefer not to use the store? Loading a copy of the installed folder from a Chrome profile also works:
 `~/Library/Application Support/Google/Chrome/Default/Extensions/<id>/<version>_0` on macOS, `%LOCALAPPDATA%\Google\Chrome\User Data\Default\Extensions\<id>\<version>_0` on Windows. Use **Load unpacked…** on it.
@@ -267,6 +283,7 @@ src/main/window.js          one window: tab views, side panel, layout
 src/main/url.js             address-bar input -> URL or Google search
 src/main/profile.js         moves the old "Ordinance Browser" profile to Chrome2
 src/main/startup.js         start-up safety net: log file, extension time limit, safe mode
+src/main/window-details.js  chrome.windows: list each window's tabs like Chrome does
 src/main/store.js           bookmarks/history/settings JSON files
 src/main/extensions.js      load/remove/persist extensions (unpacked and Web Store)
 src/main/extension-support.js  measured API support table
