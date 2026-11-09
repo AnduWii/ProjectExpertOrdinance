@@ -83,14 +83,14 @@ Writes are atomic (temp file + rename). A corrupt file is renamed to `*.corrupt-
 ### If Chrome2 won't open
 
 1. **It may already be running.** Only one copy runs at a time; opening it again hands over to the running one. If no window appears, quit Chrome2 in Activity Monitor (macOS) or Task Manager (Windows), then open it again.
-2. **Safe mode.** If a start never got a window on screen, the next start skips extensions and shows a notice; quitting and reopening loads them again. To force it, start Chrome2 with `--safe-mode`:
+2. **Safe mode.** If a start crashed or got stuck before a window was on screen, the next start skips extensions and shows a notice; quitting and reopening loads them again. Quitting normally while it is still starting doesn't count as a failed start. To force it, start Chrome2 with `--safe-mode`:
 
    ```bash
    open -a Chrome2 --args --safe-mode
    ```
 
    On Windows, run `Chrome2.exe --safe-mode` from its install folder. From source: `npm start -- --safe-mode`.
-3. **Read the log.** `logs/main.log` in the data folder (above) records why a start failed. If start-up itself fails, Chrome2 shows the error and exits, instead of sitting invisible in the background.
+3. **Read the log.** `logs/main.log` in the data folder (above) records why a start failed. If start-up itself fails, or still has no window about 40 seconds after launch, Chrome2 shows the error and exits, instead of sitting invisible in the background.
 4. **macOS says Chrome2 "is damaged and can't be opened":** the app isn't broken. macOS refuses downloaded apps that aren't signed with an Apple Developer ID and notarised, and Chrome2's builds are only ad-hoc signed. For this message there is no **Open Anyway** button. Move Chrome2 to Applications, then clear the download flag once:
 
    ```bash

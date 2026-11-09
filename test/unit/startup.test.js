@@ -42,6 +42,21 @@ test('StartupGuard: a start that never finished is detected on the next launch',
   assert.equal(new StartupGuard(dir).begin(), false, 'a successful start clears it');
 });
 
+test('StartupGuard: quitting clears only a marker this process wrote', () => {
+  const dir = tmp();
+  const marker = path.join(dir, 'startup-in-progress');
+  // An earlier start failed; this process quits before it begins its own.
+  fs.writeFileSync(marker, '123 earlier\n');
+  new StartupGuard(dir).quitting();
+  assert.equal(fs.existsSync(marker), true, 'evidence of the failed start is kept');
+  // A start that is quit normally (even before its window showed) did not fail.
+  const guard = new StartupGuard(dir);
+  guard.begin();
+  guard.quitting();
+  assert.equal(fs.existsSync(marker), false);
+  assert.equal(new StartupGuard(dir).begin(), false, 'the next launch is a normal one');
+});
+
 test('installLog mirrors warnings and errors into logs/main.log', () => {
   const dir = tmp();
   const seen = [];

@@ -86,10 +86,12 @@ const tabWebPreferences = (session) => ({
 
 class BrowserWindowController extends EventEmitter {
   /**
+   * Opens no tabs: the caller registers the controller first, then calls
+   * openInitialTabs(), so extension lookups made while the first tab is being
+   * added (chrome.windows/tabs events) can already find this window.
    * @param {object} ctx shared app context (see main.js)
-   * @param {{urls?: string[]}} [options]
    */
-  constructor(ctx, { urls = [] } = {}) {
+  constructor(ctx) {
     super();
     this.ctx = ctx;
     this.tabs = new Map();
@@ -128,8 +130,11 @@ class BrowserWindowController extends EventEmitter {
       this.win.on(ev, () => this.layout());
     }
     this.win.on('closed', () => this.destroy());
+  }
 
-    const initial = urls.length ? urls : [ctx.getHomePage()];
+  /** @param {string[]} [urls] the window's first tabs; the home page if none */
+  openInitialTabs(urls = []) {
+    const initial = urls.length ? urls : [this.ctx.getHomePage()];
     initial.forEach((url, i) => this.createTab({ url, active: i === 0 }));
   }
 
@@ -245,16 +250,22 @@ class BrowserWindowController extends EventEmitter {
 
   /** Chrome's "Page Unresponsive" prompt: wait, or end the page's process. */
   async offerToStopPage(tab) {
-    if (tab.unresponsive || tab.wc.isDestroyed()) return;
+    if (tab.unresponsive || tab.wc.isDestroyed() || this.win.isDestroyed()) return;
     tab.unresponsive = true;
-    const { response } = await dialog.showMessageBox(this.win, {
-      type: 'warning',
-      message: 'Page Unresponsive',
-      detail: `"${tab.title || tab.url}" isn't responding. You can wait for it, or exit the page and reload it later.`,
-      buttons: ['Exit page', 'Wait'],
-      defaultId: 1,
-      cancelId: 1,
-    });
+    let response = 1; // "Wait" if the prompt can't be shown
+    try {
+      ({ response } = await dialog.showMessageBox(this.win, {
+        type: 'warning',
+        message: 'Page Unresponsive',
+        detail: `"${tab.title || tab.url}" isn't responding. You can wait for it, or exit the page and reload it later.`,
+        buttons: ['Exit page', 'Wait'],
+        defaultId: 1,
+        cancelId: 1,
+      }));
+    } catch (err) {
+      // Without this the tab stays flagged and never offers the prompt again.
+      console.error('[window] could not show the Page Unresponsive prompt:', err);
+    }
     const stillStuck = tab.unresponsive;
     tab.unresponsive = false;
     if (response === 0 && stillStuck && !tab.wc.isDestroyed()) tab.wc.forcefullyCrashRenderer();
