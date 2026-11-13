@@ -44,6 +44,8 @@ test('[Windows API] windows.create returns its tab, and tab groups work on it', 
     const win = step('windows.create({url:"about:blank"})');
     assert.equal(win.tabCount, 1);
     assert.equal(typeof win.firstTabId, 'number');
+    assert.equal(win.firstTabActive, true, "the new window's only tab is its active tab");
+    assert.deepEqual(step('tabs.get(tabId)'), { id: win.firstTabId, active: true, index: 0, windowId: win.id });
     assert.equal(step('createdWindow.tabs[0].id'), win.firstTabId);
     assert.deepEqual(step('tabs.query({windowId})').map((x) => x.id), [win.firstTabId]);
   });
@@ -60,5 +62,26 @@ test('[Windows API] windows.create returns its tab, and tab groups work on it', 
     const win = step('windows.get(createdId,{populate:true})');
     assert.equal(win.tabCount, 1);
     assert.equal(win.firstTabId, step('createdWindow.tabs[0].id'));
+  });
+
+  await t.test('tabs.query/get and windows.get agree on tab indexes after tabs move and close', async () => {
+    // Every API must report each tab's current position in the strip, also
+    // when a query matches only some tabs (the library used to number the
+    // matches 0, 1, 2… and leave those numbers behind for tabs.get).
+    const check = async (label) => {
+      const { order, windowId, activeId } = await app.evaluate(() => {
+        const c = [...globalThis.__ordinance.controllers][0];
+        return { order: c.order, windowId: c.win.id, activeId: c.activeId };
+      });
+      const want = Object.fromEntries(order.map((id, i) => [id, i]));
+      const got = await h.tabEval(app, tabId, `chrome.runtime.sendMessage({ type: 'indexes', windowId: ${windowId} })`);
+      assert.deepEqual(got, { query: want, get: want, window: want, active: { [activeId]: order.indexOf(activeId) } }, label);
+      return order;
+    };
+    const order = await check('as opened');
+    await app.evaluate((_e, id) => [...globalThis.__ordinance.controllers][0].moveTab(id, 2), order[0]);
+    const moved = await check('after moving the first tab to the end');
+    await app.evaluate((_e, id) => [...globalThis.__ordinance.controllers][0].closeTab(id), moved[0]);
+    await check('after closing the first tab');
   });
 });

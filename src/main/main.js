@@ -42,6 +42,8 @@ const PARTITION = 'persist:ordinance';
 const WEB_STORE_URL = 'https://chromewebstore.google.com/';
 // Extensions get this long to load before the first window opens anyway.
 const EXTENSION_WAIT_MS = Number(process.env.ORDINANCE_EXTENSION_WAIT_MS) || 8000;
+// Start-up only waits on extensions (bounded above); past this it is stuck.
+const STARTUP_WATCHDOG_MS = EXTENSION_WAIT_MS + 30000;
 const controllers = new Set();
 const ctx = {
   session: null,
@@ -72,11 +74,14 @@ function startupUrls(argv) {
 }
 
 function createWindow(urls = []) {
-  const c = new BrowserWindowController(ctx, { urls });
+  const c = new BrowserWindowController(ctx);
+  // Registered before its first tab exists: adding that tab fires extension
+  // events that look the window up (see controllerForTab/controllerForWindow).
   controllers.add(c);
   c.on('closed', () => controllers.delete(c));
   c.on('side-panel-opened', (id) => ctx.compat?.onSidePanelChange(c, id, true));
   c.on('side-panel-closed', (id) => ctx.compat?.onSidePanelChange(c, id, false));
+  c.openInitialTabs(urls);
   return c;
 }
 
@@ -364,9 +369,22 @@ function createExtensionSupport() {
       if (!win.isDestroyed()) win.close();
     },
     assignTabDetails(details, wc) {
-      // The library leaves index at -1; Chrome reports the tab's position.
-      const c = controllerForTab(wc.id);
-      if (c) details.index = c.order.indexOf(wc.id);
+      // Chrome reports a tab's current position in its window. The library
+      // computes `index` once (-1), caches the object until the tab closes,
+      // and tabs.query overwrites it with the tab's position in the query's
+      // results (so query({active:true}) said 0, and later tabs.get agreed).
+      // A live value that ignores those writes stays right after tabs are
+      // opened, closed or dragged.
+      const id = wc.id;
+      Object.defineProperty(details, 'index', {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+          const c = controllerForTab(id);
+          return c ? c.order.indexOf(id) : -1;
+        },
+        set: () => {},
+      });
       ctx.compat?.assignTabDetails(details, wc);
     },
   });
@@ -376,7 +394,7 @@ function createExtensionSupport() {
     const c = controllerForWindow(win);
     return c ? c.order.map((id) => c.tabs.get(id)?.wc).filter(Boolean) : null;
   });
-  if (!fixed) console.warn('[extensions] could not install the chrome.windows tabs fix; window.tabs may be empty');
+  if (!fixed) console.error('[extensions] could not install the chrome.windows tabs fix; window.tabs may be empty (electron-chrome-extensions changed?)');
 
   ctx.webStoreDir = path.join(app.getPath('userData'), 'WebStoreExtensions');
   ctx.extensions = new ExtensionManager({
@@ -543,12 +561,19 @@ function buildMenu() {
 
 // ------------------------------------------------------------- lifecycle
 
-// Never let one bad callback take the whole browser down.
-process.on('uncaughtException', (err) => console.error('[main] uncaught exception:', err));
-process.on('unhandledRejection', (err) => console.error('[main] unhandled rejection:', err));
-
 let started = false;
+let startupError = null; // first uncaught error before the first window, for the watchdog
 const pendingUrls = []; // URLs from a second launch that arrived mid-start-up
+
+// Never let one bad callback take the whole browser down. Before the first
+// window exists an error is kept: if start-up then stalls, the watchdog
+// (STARTUP_WATCHDOG_MS) reports it instead of leaving a windowless process.
+function onUncaught(kind, err) {
+  console.error(`[main] ${kind}:`, err);
+  if (!started && !startupError) startupError = err;
+}
+process.on('uncaughtException', (err) => onUncaught('uncaught exception', err));
+process.on('unhandledRejection', (err) => onUncaught('unhandled rejection', err));
 
 /**
  * Load extensions, but never let them hold the first window back. The returned
@@ -679,13 +704,26 @@ if (!app.requestSingleInstanceLock()) {
 
   app.userAgentFallback = chromeLikeUserAgent(app.userAgentFallback);
 
-  app.whenReady().then(startBrowser).catch(failedToStart);
+  app
+    .whenReady()
+    .then(() => {
+      // startBrowser only waits on extensions, and that wait is bounded. If it
+      // still hasn't opened a window, say so and exit rather than leave a
+      // windowless process holding the single-instance lock.
+      const watchdog = setTimeout(() => {
+        if (!started) failedToStart(startupError || new Error(`start-up did not finish within ${STARTUP_WATCHDOG_MS / 1000} s`));
+      }, STARTUP_WATCHDOG_MS);
+      return startBrowser().finally(() => clearTimeout(watchdog));
+    })
+    .catch(failedToStart);
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
 
   app.on('before-quit', () => ctx.history?.flush());
+  // A normal quit (failedToStart's app.exit and crashes skip this event).
+  app.on('will-quit', () => startupGuard.quitting());
 }
 
 // End-to-end tests drive the app through this handle (never set in normal use).

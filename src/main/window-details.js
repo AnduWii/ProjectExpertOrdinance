@@ -14,8 +14,9 @@
  *
  * This replaces the library's window-details builder on its WindowsAPI
  * instance: tabs are listed fresh on every call, in tab-strip order, each
- * with its real index. The library's own handlers call these methods through
- * `this`, so the instance properties take over without patching node_modules.
+ * with its real index and the same details chrome.tabs reports for it. The
+ * library's own handlers call these methods through `this`, so the instance
+ * properties take over without patching node_modules.
  */
 
 /**
@@ -25,30 +26,51 @@
  *   the window's tabs in strip order, or null for a window the browser doesn't
  *   manage (popups, sign-in windows), which then falls back to the library's own
  *   tab-to-window mapping
- * @returns {boolean} whether the fix was installed
+ * @returns {boolean} false when the library no longer has the internals this
+ *   relies on (it is pinned to an exact version for that reason, and e2e test
+ *   12 fails if the fix is missing)
  */
 function installWindowDetailsFix(windowsApi, tabsApi, orderedTabs) {
-  if (!windowsApi || !tabsApi || typeof windowsApi.createWindowDetails !== 'function' || typeof tabsApi.getTabDetails !== 'function') {
+  const store = windowsApi && windowsApi.ctx && windowsApi.ctx.store;
+  if (
+    !store ||
+    !(store.tabDetailsCache instanceof Map) ||
+    !(store.tabs instanceof Set) ||
+    !(store.tabToWindow instanceof WeakMap) ||
+    typeof windowsApi.createWindowDetails !== 'function' ||
+    !tabsApi ||
+    typeof tabsApi.createTabDetails !== 'function'
+  ) {
     return false;
   }
   const build = windowsApi.createWindowDetails.bind(windowsApi);
-  const store = windowsApi.ctx && windowsApi.ctx.store;
+  const cache = store.tabDetailsCache;
 
   const tabsOf = (win) => {
     const ordered = orderedTabs(win);
     if (ordered) return ordered;
-    if (!store) return [];
     return [...store.tabs].filter((tab) => {
       const owner = store.tabToWindow.get(tab);
       return owner && !owner.isDestroyed() && owner.id === win.id;
     });
   };
 
+  // The tab as chrome.tabs reports it. A tab chrome.tabs hasn't reported yet
+  // is described fresh but NOT cached: a window can be announced before its
+  // first tab is marked active, and a cached copy made then would keep
+  // `active: false` (the library only refreshes it on the next page update).
+  const tabDetails = (wc) => {
+    if (cache.has(wc.id)) return cache.get(wc.id);
+    const details = tabsApi.createTabDetails(wc);
+    cache.delete(wc.id);
+    return details;
+  };
+
   windowsApi.createWindowDetails = (win) => {
     const details = build(win);
     details.tabs = tabsOf(win)
       .filter((wc) => wc && !wc.isDestroyed())
-      .map((wc, index) => ({ ...tabsApi.getTabDetails(wc), index, windowId: win.id }));
+      .map((wc, index) => ({ ...tabDetails(wc), index, windowId: win.id }));
     return details;
   };
   // Never serve a stale snapshot (the library keeps one until the window closes).

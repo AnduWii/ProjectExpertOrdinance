@@ -8,6 +8,7 @@ const summarizeWindow = (w) =>
     tabsIsArray: Array.isArray(w.tabs),
     tabCount: Array.isArray(w.tabs) ? w.tabs.length : null,
     firstTabId: w.tabs && w.tabs[0] ? w.tabs[0].id : undefined,
+    firstTabActive: w.tabs && w.tabs[0] ? w.tabs[0].active : undefined,
     tabIndexes: Array.isArray(w.tabs) ? w.tabs.map((t) => t.index) : null,
   };
 
@@ -35,14 +36,29 @@ async function runProbe() {
   await step(log, 'tabGroups.query({})', () => chrome.tabGroups.query({}), (gs) => gs.map((g) => ({ id: g.id, title: g.title, windowId: g.windowId })));
   await step(log, 'tabGroups.get(groupId)', () => chrome.tabGroups.get(groupId), (g) => g && { id: g.id, title: g.title });
   await step(log, 'tabs.get(tabId).groupId', () => chrome.tabs.get(tabId), (t) => t && { id: t.id, groupId: t.groupId });
+  await step(log, 'tabs.get(tabId)', () => chrome.tabs.get(tabId), (t) => t && { id: t.id, active: t.active, index: t.index, windowId: t.windowId });
   await step(log, 'windows.get(createdId,{populate:true})', () => chrome.windows.get(win.id, { populate: true }), summarizeWindow);
   if (win && win.id !== undefined) await step(log, 'windows.remove(createdId)', () => chrome.windows.remove(win.id));
   return log;
 }
 
+// Each tab's index as chrome.tabs and chrome.windows report it, by tab id.
+async function indexes(windowId) {
+  const byId = (tabs) => Object.fromEntries(tabs.map((t) => [t.id, t.index]));
+  const queried = await chrome.tabs.query({ windowId });
+  const win = await chrome.windows.get(windowId, { populate: true });
+  const got = await Promise.all(queried.map((t) => chrome.tabs.get(t.id)));
+  const active = await chrome.tabs.query({ windowId, active: true });
+  return { query: byId(queried), get: byId(got), window: byId(win.tabs), active: byId(active) };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === 'run-probe') {
     runProbe().then(sendResponse, (err) => sendResponse([{ name: 'probe', ok: false, error: String(err) }]));
+    return true;
+  }
+  if (msg && msg.type === 'indexes') {
+    indexes(msg.windowId).then(sendResponse, (err) => sendResponse({ error: String(err) }));
     return true;
   }
 });

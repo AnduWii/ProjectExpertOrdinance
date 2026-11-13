@@ -80,6 +80,7 @@ class StartupGuard {
   constructor(dir) {
     this.file = path.join(dir, 'startup-in-progress');
     this.previousFailed = false;
+    this.began = false; // this process wrote the marker
   }
 
   begin() {
@@ -87,6 +88,7 @@ class StartupGuard {
       this.previousFailed = fs.existsSync(this.file);
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.writeFileSync(this.file, `${process.pid} ${new Date().toISOString()}\n`);
+      this.began = true;
     } catch {
       this.previousFailed = false;
     }
@@ -99,6 +101,15 @@ class StartupGuard {
     } catch {
       /* ignore */
     }
+  }
+
+  /**
+   * Quitting normally, even before the window appeared, is not a failed
+   * start: clear the marker so the next launch loads extensions. A marker
+   * this process did not write (an earlier failed start) is left alone.
+   */
+  quitting() {
+    if (this.began) this.succeeded();
   }
 }
 
